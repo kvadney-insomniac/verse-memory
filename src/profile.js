@@ -6,39 +6,26 @@
  * option lists and the pure helpers; all functions are pure so they can be unit
  * tested in Node without a browser. */
 
-/* Acts 2 Network ministry groups. This is the authoritative option list for the
- * profile's autocomplete picklist. Keep it in canonical/ministry order, with the
- * "Other" catch-all pinned last (not alphabetized) for members whose group isn't
- * listed. */
-export const MINISTRY_GROUPS = [
-  "A2F",
-  "Kairos",
-  "USF",
-  "SFSU",
-  "BAC",
-  "Womens",
-  "DVC",
-  "Acts2 Next",
-  "A2K",
-  "AYM IH",
-  "AYM Oak",
-  "AVL",
-  "F2W",
-  "Element HS",
-  "Element MS",
-  "Impact Elem",
-  "Impact Youth",
-  "Doulos",
-  "IGSM",
-  "ISMP UCB 1",
-  "ISMP UCB 2",
-  "ISMP NE",
-  "ISMP BCC",
-  "Aletheia",
-  "VSM",
-  "ECM",
-  "Other",
-];
+import { appConfig } from "./config.js";
+
+/* The ministry groups this deployment knows about — the authoritative option
+ * list for the profile's autocomplete picklist. Every group is somebody's own
+ * list of congregations, campuses or small groups, so it comes from
+ * `appConfig.ministryGroups` (see src/config.js, which carries this deployment's
+ * as its default) rather than being written out here. Keep whatever list is
+ * configured in canonical/ministry order, with an "Other" catch-all pinned last
+ * (not alphabetized) for members whose group isn't listed.
+ *
+ * A group name is stored in the member's profile verbatim and read back by the
+ * leaderboard's grouping, so renaming one leaves the members who chose the old
+ * name filed under it — the same reason a category key never moves. Anything
+ * that is not a non-empty string is dropped rather than offered as a blank row,
+ * and a list configured as nothing at all leaves the picker with no suggestions,
+ * which the form already handles: the field is free text with a picklist beside
+ * it, not a closed menu. */
+export const MINISTRY_GROUPS = (Array.isArray(appConfig.ministryGroups) ? appConfig.ministryGroups : [])
+  .filter((g) => typeof g === "string" && g.trim())
+  .map((g) => g.trim());
 
 export const GENDERS = ["Male", "Female"];
 

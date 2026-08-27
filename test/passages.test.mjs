@@ -1,5 +1,6 @@
-/* The shipped passage set: that it is well-formed, and that it stays inside the
- * ESV API's licence.
+/* The shipped passage set: that it is well-formed, that it agrees with the
+ * translation it claims to be in, and that it stays inside that translation's
+ * licence where the translation has one.
  *
  * The licence half is the point of this file. Crossway's v3 terms cap how much
  * of their text may be stored and displayed — no more than 500 consecutive
@@ -7,13 +8,22 @@
  * that is not a bad line of code but a well-meant addition to
  * tools/new-passages.json. So the limits are asserted over what we actually
  * ship, where they can fail the build, rather than left in the README where
- * they can only be remembered. */
+ * they can only be remembered.
+ *
+ * Those two limits are now **gated on the shipped translation being ESV**, and
+ * that is a correction rather than a loosening: they were never a rule about
+ * scripture, they are the terms Crossway attaches to their text, and applying
+ * them to a public-domain set would be this repo inventing a restriction its
+ * source does not carry. On an ESV build — which is what is committed today —
+ * they register and run and fail the build exactly as they always have. */
 
 import test from "node:test";
 import assert from "node:assert";
 
 import { passages } from "../data/passages.js";
 import { keywordIndices } from "../data/keywords.js";
+import { translation } from "../data/translation.js";
+import { translationById } from "../data/translations.js";
 import { CATEGORIES, categoryOf } from "../src/categories.js";
 
 const KEYS = new Set(CATEGORIES.map((c) => c.key));
@@ -123,6 +133,15 @@ test("a verse-structured passage joins back to its own text", () => {
   }
 });
 
+/* The regression test for the trap tools/fetch_passages.mjs describes at
+ * length: keyword indices are positions in text.split(" ") with nothing in the
+ * file recording which text they were computed from, and src/blanks.js prefers
+ * them over its own heuristic. Regenerate the passages in another translation
+ * without dealing with this file and every index survives, still well-formed,
+ * now pointing at the wrong word — a failure with no symptom except a member
+ * being asked to recall the wrong half of the sentence. An index past the end
+ * of its own passage is the one shape of that mistake a machine can see, so it
+ * is checked on every run. */
 test("keyword indices line up with the passage they belong to", () => {
   for (const p of passages) {
     const words = p.text.split(" ").length;
@@ -132,40 +151,79 @@ test("keyword indices line up with the passage they belong to", () => {
   }
 });
 
-/* ── the ESV licence ──────────────────────────────────────────────────────── */
-
-test("no book is stored past half its verses", () => {
-  const stored = {};
-  for (const p of passages) {
-    for (const [chapter, verse] of versesCovered(p)) {
-      (stored[p.book] ||= new Set()).add(chapter + ":" + verse);
-    }
-  }
-  for (const [book, verses] of Object.entries(stored)) {
-    const total = BOOK_VERSES[book];
-    assert.ok(total, `${book} has no verse total — add it to BOOK_VERSES`);
-    assert.ok(
-      verses.size <= total / 2,
-      `${book}: ${verses.size} of ${total} verses stored, over the half-a-book limit`,
-    );
+test("no keyword entry outlives the passage it was generated for", () => {
+  const ids = new Set(passages.map((p) => String(p.id)));
+  for (const id of Object.keys(keywordIndices)) {
+    assert.ok(ids.has(id), `keywords name passage ${id}, which the set no longer holds`);
   }
 });
 
-test("no run of 500 consecutive verses is stored", () => {
-  const byBook = {};
-  for (const p of passages) {
-    for (const [chapter, verse] of versesCovered(p)) {
-      (byBook[p.book] ||= []).push(chapter * 1000 + verse);
-    }
-  }
-  for (const [book, marks] of Object.entries(byBook)) {
-    const sorted = [...new Set(marks)].sort((a, b) => a - b);
-    let run = 1;
-    let longest = 1;
-    for (let i = 1; i < sorted.length; i++) {
-      run = sorted[i] === sorted[i - 1] + 1 ? run + 1 : 1;
-      longest = Math.max(longest, run);
-    }
-    assert.ok(longest <= 500, `${book}: a run of ${longest} consecutive verses, over the 500 limit`);
+/* ── the translation this build is in ─────────────────────────────────────── */
+
+test("the shipped set and data/translation.js agree", () => {
+  const known = translationById(translation.id);
+  assert.ok(known, `data/translation.js claims "${translation.id}", which data/translations.js does not know`);
+  assert.equal(translation.name, known.name, "the shipped name and the table's name disagree");
+  assert.equal(translation.notice, known.notice, "the shipped notice has drifted from the table's");
+  assert.equal(translation.publicDomain, known.publicDomain, "the shipped publicDomain flag disagrees with the table");
+  assert.equal(typeof translation.generatedAt, "string");
+  assert.ok(!Number.isNaN(Date.parse(translation.generatedAt)), "generatedAt is not a readable timestamp");
+  // A set with no passages in it is the shape a half-finished fetch leaves, and
+  // the one case where the record above would still look perfectly consistent.
+  assert.ok(passages.length > 0, "data/translation.js describes an empty set");
+});
+
+/* Nobody compels an attribution line for a public-domain text, which is exactly
+ * why it is asserted rather than assumed: the footer is where a member finds
+ * out what they are reciting, and the failure mode of making the notice
+ * pluggable is a build that quietly renders an empty one. */
+test("whatever the build ships, it carries a notice naming the text", () => {
+  assert.equal(typeof translation.notice, "string");
+  assert.ok(translation.notice.trim().length > 20, "the shipped notice is too short to say anything");
+  assert.match(translation.notice, /Scripture/i, "the notice does not read as an attribution line");
+  if (translation.publicDomain) {
+    assert.match(translation.notice, /public domain/i, "a public-domain build should say so");
   }
 });
+
+/* ── the ESV licence, which applies only to an ESV build ──────────────────── */
+
+const licensed = translation.id === "esv";
+
+if (licensed)
+  test("no book is stored past half its verses", () => {
+    const stored = {};
+    for (const p of passages) {
+      for (const [chapter, verse] of versesCovered(p)) {
+        (stored[p.book] ||= new Set()).add(chapter + ":" + verse);
+      }
+    }
+    for (const [book, verses] of Object.entries(stored)) {
+      const total = BOOK_VERSES[book];
+      assert.ok(total, `${book} has no verse total — add it to BOOK_VERSES`);
+      assert.ok(
+        verses.size <= total / 2,
+        `${book}: ${verses.size} of ${total} verses stored, over the half-a-book limit`,
+      );
+    }
+  });
+
+if (licensed)
+  test("no run of 500 consecutive verses is stored", () => {
+    const byBook = {};
+    for (const p of passages) {
+      for (const [chapter, verse] of versesCovered(p)) {
+        (byBook[p.book] ||= []).push(chapter * 1000 + verse);
+      }
+    }
+    for (const [book, marks] of Object.entries(byBook)) {
+      const sorted = [...new Set(marks)].sort((a, b) => a - b);
+      let run = 1;
+      let longest = 1;
+      for (let i = 1; i < sorted.length; i++) {
+        run = sorted[i] === sorted[i - 1] + 1 ? run + 1 : 1;
+        longest = Math.max(longest, run);
+      }
+      assert.ok(longest <= 500, `${book}: a run of ${longest} consecutive verses, over the 500 limit`);
+    }
+  });

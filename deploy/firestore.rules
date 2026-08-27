@@ -1,25 +1,30 @@
+// GENERATED FILE — do not edit by hand.
+// Re-run tools/gen_rules.mjs (npm run rules) after changing the allowed domains
+// in src/config.js, then: firebase deploy --only firestore:rules
+
 rules_version = '2';
 
 // Firestore security rules for Verse Mastery.
-// Access is restricted to verified Google accounts in the Acts 2 Network
-// Workspace domains (gpmail.org, acts2.network). This is the authoritative
-// enforcement — the client-side domain check is a convenience, not security.
+// Access is restricted to verified Google accounts in this deployment's
+// configured domains (see appConfig.allowedDomains in src/config.js). This is
+// the authoritative enforcement — the client-side domain check is a
+// convenience, not security.
 // Deploy with: firebase deploy --only firestore:rules
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isActsUser() {
+    function isAllowedUser() {
       return request.auth != null
         && request.auth.token.email_verified == true
         && request.auth.token.email.lower().matches('.*@(gpmail[.]org|acts2[.]network)$');
     }
 
     // Per-user progress documents: users/{uid} = { progress, log, updatedAt }.
-    // Any signed-in gpmail.org user may read (so a leaderboard can aggregate
-    // committed counts); a user may write only their own document.
+    // Any signed-in member may read (so a leaderboard can aggregate committed
+    // counts); a user may write only their own document.
     match /users/{uid} {
-      allow read: if isActsUser();
-      allow write: if isActsUser() && request.auth.uid == uid;
+      allow read: if isAllowedUser();
+      allow write: if isAllowedUser() && request.auth.uid == uid;
     }
 
     // Per-user leaderboard summaries: standings/{uid} = the few figures the
@@ -28,8 +33,8 @@ service cloud.firestore {
     // reads, each member writes only their own — but this is the collection
     // the board actually scans, so the read is a fraction of the size.
     match /standings/{uid} {
-      allow read: if isActsUser();
-      allow write: if isActsUser() && request.auth.uid == uid;
+      allow read: if isAllowedUser();
+      allow write: if isAllowedUser() && request.auth.uid == uid;
     }
   }
 }

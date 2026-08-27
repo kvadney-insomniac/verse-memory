@@ -1,6 +1,6 @@
-/* Sign-in gate. Stands in front of the whole app until an approved Acts 2
- * Network member is signed in (or Firebase is unavailable and the app falls back
- * to local-only). */
+/* Sign-in gate. Stands in front of the whole app until an approved member of the
+ * configured group is signed in (or Firebase is unavailable and the app falls
+ * back to local-only). */
 
 import { copy } from "../copy.js";
 import { html, sx, corners, appMark } from "../dom.js";
@@ -34,7 +34,7 @@ export function authGateView(v) {
       <p style=${sx(SCREEN_BODY)}>
         ${copy.authGate.promptLead} <strong>${v.domainLabel}</strong> ${copy.authGate.prompt}
       </p>
-      ${v.denied && html`<div style=${sx(CALLOUT_ERROR)}>${copy.authGate.denied(v.domainLabel)}</div>`}
+      ${v.denied && html`<div style=${sx(CALLOUT_ERROR)}>${copy.authGate.denied(v.groupName, v.domainLabel)}</div>`}
       ${v.failed && html`<div style=${sx(CALLOUT_ERROR)}>${copy.authGate.failed}</div>`}
       <button
         className="btn btn-primary"

@@ -155,8 +155,13 @@ export const copy = {
   authGate: {
     prompt: "account to track your passages and sync across devices.",
     promptLead: "Sign in with your",
-    denied: (domain) =>
-      "That account isn't an Acts 2 Network account. Please sign in with your " + domain + " account.",
+    /* Names the group rather than one church, because more than one of them
+     * deploys this app (appConfig.groupName — see src/config.js). Phrased to
+     * read properly whatever that name turns out to be: "isn't an X account"
+     * needs an article that only fits some names, where "isn't part of X" fits
+     * every one of them. */
+    denied: (group, domain) =>
+      "That account isn't part of " + group + ". Please sign in with your " + domain + " account.",
     failed: "Sign-in didn't complete. Please try again.",
     busy: "Signing in…",
     signIn: "Sign in with Google",

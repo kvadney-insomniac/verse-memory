@@ -66,6 +66,7 @@ HTTP; opening `index.html` from the filesystem will not work.
 ├── tools/
 │   ├── gen_keywords.py    # spaCy keyword generator -> data/keywords.js
 │   ├── fetch_passages.mjs # ESV API fetch -> data/passages.js (authoring only)
+│   ├── gen_rules.mjs      # writes deploy/firestore.rules from the configured domains
 │   └── new-passages.json  #   what that fetch should pull
 ├── scripts/
 │   └── build.mjs          # assembles ./dist for the Cloudflare Workers deploy
@@ -73,10 +74,10 @@ HTTP; opening `index.html` from the filesystem will not work.
 │   └── helpers/            #  dom-env.mjs (render harness), scenarios.mjs (fixtures)
 ├── deploy/
 │   ├── nginx.conf         # static-serving config for the container
-│   └── firestore.rules    # Firestore security rules (cloud sync)
+│   └── firestore.rules    # Firestore security rules (generated — npm run rules)
 ├── design/                # provenance: source docs + original design export
 │                           #  (design/claude-design/ is gitignored — absent on a fresh clone)
-├── docs/                  # standards & reference (A2N dev best practices)
+├── docs/                  # standards & reference; DEPLOYING.md for a new church
 ├── wrangler.jsonc         # Cloudflare Workers static-assets config
 ├── Dockerfile             # nginx image (container-based deploy, per A2N)
 └── .drone.yml             # CI/CD pipeline (Drone)
@@ -89,8 +90,8 @@ state and an `actions` table and dispatches to views — nothing else.
 
 ## Configuration
 
-Defaults live in `src/config.js`. To override per deployment (church name, goal
-deadline, Firebase), copy the template and edit it:
+Defaults live in `src/config.js`. To override per deployment, copy the template
+and edit it:
 
 ```bash
 cp config.example.js config.js
@@ -98,6 +99,14 @@ cp config.example.js config.js
 
 `config.js` is gitignored and loaded by `index.html` before the app. If it is
 absent, the app runs on the built-in defaults.
+
+Everything church-specific is a setting, so the app is deployable by any church
+and Acts 2 Network - Berkeley is simply the deployment whose values are the
+defaults: `groupName`, `motto`, `deadline`, `splashMinMs`, `allowedDomains` +
+`primaryDomain`, `ministryGroups`, `categoryNames`, `transcribeUrl`, and the
+Firebase config. Changing `allowedDomains` also means regenerating the Firestore
+rules — see below. **Standing this up for your own church? Start with
+[`docs/DEPLOYING.md`](docs/DEPLOYING.md).**
 
 ## Adding passages
 
@@ -138,16 +147,20 @@ Do not edit `data/keywords.js` by hand — re-run the generator.
 
 ## Authentication & cloud sync (Firebase)
 
-Access is restricted to Google accounts in the Acts 2 Network Workspace domains,
-**gpmail.org** and **acts2.network**. Members sign in with Google; each member's
-progress then syncs across devices via Firebase (project `verse-memory`):
+Access is restricted to Google accounts in the deployment's configured Workspace
+domains — for this deployment, **gpmail.org** and **acts2.network**. Members sign
+in with Google; each member's progress then syncs across devices via Firebase
+(project `verse-memory`):
 
-- **Google sign-in**, gated to `@gpmail.org` / `@acts2.network`. The client
-  rejects and signs out any account outside those domains, and —
-  authoritatively — **Firestore rules only allow verified identities in those
-  domains** (`deploy/firestore.rules`). Never trust the client alone; the rules
-  are the real enforcement. The allowed set is `ALLOWED_DOMAINS` in
-  `src/firebase.js`.
+- **Google sign-in**, gated to the configured domains. The client rejects and
+  signs out any account outside them, and — authoritatively — **Firestore rules
+  only allow verified identities in those domains** (`deploy/firestore.rules`).
+  Never trust the client alone; the rules are the real enforcement. The list is
+  `appConfig.allowedDomains` in `src/config.js`, and `deploy/firestore.rules` is
+  **generated from it** by `npm run rules` (`tools/gen_rules.mjs`) so the two
+  halves cannot drift; `test/rules.test.mjs` fails if they have. An empty list
+  admits nobody, deliberately — to open the app to any Google account, say so
+  with the single entry `["*"]`.
 - **Firestore** stores one doc per user at
   `users/{uid}` = `{ name, email, progress, log, profile, updatedAt }`. On
   sign-in the remote doc is pulled and reconciled with local state
@@ -168,13 +181,14 @@ default project config lives in `src/config.js`; override per deployment via
    ```bash
    npm i -g firebase-tools     # if needed
    firebase login              # once
+   npm run rules                            # regenerate deploy/firestore.rules from the config
    firebase deploy --only firestore:rules   # uses deploy/firestore.rules
    ```
 3. Add the app's domain under **Authentication → Settings → Authorized domains**.
 
-Note: because sign-in spans two Workspace domains (gpmail.org, acts2.network),
-the Google `hd` hint isn't used and the OAuth consent screen can't be locked to a
-single Workspace. Domain membership is enforced by `emailAllowed()` and the
+Note: because sign-in can span more than one Workspace domain (here gpmail.org
+and acts2.network), the Google `hd` hint isn't used and the OAuth consent screen
+can't be locked to a single Workspace. Domain membership is enforced by `emailAllowed()` and the
 Firestore rules instead.
 
 Implementation: `src/firebase.js` (SDK load, Google auth + domain gate, Firestore
@@ -218,14 +232,54 @@ npm run format         # Prettier (write)
 npm run format:check   # Prettier (check, as CI runs it)
 ```
 
-## Scripture text
+## Scripture text, and choosing a translation
 
-Passage text is the **English Standard Version (ESV)**, © Crossway, fetched from
-the [ESV API](https://api.esv.org/) (see _Adding passages_). Use is
-noncommercial and subject to Crossway's
+**The code is MIT. The scripture text is not, and the difference matters most to
+anyone deploying this themselves.**
+
+The set shipped here is the **English Standard Version (ESV)**, © Crossway,
+fetched from the [ESV API](https://api.esv.org/) at authoring time (see _Adding
+passages_). Use is noncommercial and subject to Crossway's
 [copyright and permissions](https://www.crossway.org/permissions/) and the
-[API v3 guidelines](https://api.esv.org/docs/). The required notice is shown in
-the app itself, in the footer under every signed-in screen (`copy.footer.esv`),
-because the terms ask for it wherever the text appears — not only here.
+[API v3 guidelines](https://api.esv.org/docs/) — which cap how much may be
+stored: no run of 500 consecutive verses and no more than half of any one book.
+Those limits are not left in this file to be remembered; `test/passages.test.mjs`
+asserts both over the set actually shipped, so a well-meant addition to
+`tools/new-passages.json` fails the build rather than the licence. The required
+notice appears in the app's footer under every signed-in screen, because the
+terms ask for it wherever the text appears.
 
-The MIT license below covers the application code, not the scripture text.
+**That is fine for one church running its own tool, and it is the wrong default
+for anything public** — a fork cannot lawfully redistribute ESV at will, and has
+no API key in any case. So the translation is pluggable, and several
+public-domain texts need no key and no permission:
+
+```bash
+node tools/fetch_passages.mjs --translation web   # World English Bible
+node tools/fetch_passages.mjs --translation kjv   # King James Version
+node tools/fetch_passages.mjs --translation asv   # American Standard Version
+```
+
+`data/translations.js` is the table of what is available; `data/translation.js`
+records which one the shipped set actually contains, and the footer notice is
+read from it, so a public-domain build says something true and an ESV build
+still carries Crossway's wording verbatim.
+
+One thing worth deciding deliberately rather than discovering later: **the
+translations differ in the words being memorized**, which in an app about
+holding a verse word for word is the product rather than a detail. The WEB
+renders the divine name as "Yahweh" where the ESV and KJV have "the LORD", so
+Proverbs 3:5 begins "Trust in Yahweh with all your heart". Pick the one your
+congregation actually recites.
+
+Switching translations also invalidates `data/keywords.js`, whose indices are
+aligned to the old text — the fetcher handles this for you and explains why in
+`tools/fetch_passages.mjs`; see _Regenerating keywords_.
+
+## Credit
+
+Verse Mastery was written for **Acts 2 Network - Berkeley**, and the MIT
+copyright is theirs. Everything church-specific is now a setting rather than a
+constant, so other congregations can deploy it — but the defaults are Acts 2
+Network's because it is their app, and the work of designing it was done there.
+If you stand up your own instance, please keep the attribution intact.

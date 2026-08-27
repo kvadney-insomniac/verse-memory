@@ -8,8 +8,93 @@
 const appOverrides = (typeof window !== "undefined" && window.__APP_CONFIG__) || {};
 
 export const appConfig = {
+  /* The church, campus or ministry this deployment belongs to. It is the line
+   * under the wordmark on every gate, the subtitle on the leaderboard, and the
+   * name the sign-in refusal uses when it turns an outside account away — so a
+   * deployer standing this up for their own congregation changes this first. */
   groupName: "Acts 2 Network - Berkeley",
+  /* One short line under the group name on the sign-in gate and the board hero
+   * — a rallying sentence, not a description. Empty is the default and means
+   * the line is simply not drawn, which is what every screen did before this
+   * setting was written down; a deployer with nothing to say leaves it empty
+   * rather than inventing a slogan to fill the space. */
+  motto: "",
   deadline: "2026-10-31",
+  /* The Google Workspace domains permitted to sign in.
+   *
+   * This is only half the gate, and the half that is not security: the
+   * authoritative check is the regex in deploy/firestore.rules. The two are
+   * kept in step by `npm run rules` (tools/gen_rules.mjs), which writes that
+   * file from this list — change the domains here, re-run it, and redeploy the
+   * rules. A client admitting a domain the deployed rules refuse means every
+   * read and write fails for those members, which the app cannot tell from
+   * having no record at all, so they are asked to set up a profile on every
+   * device and nothing ever syncs.
+   *
+   * Two values are deliberate rather than accidental. An **empty list admits
+   * nobody**: a missing or malformed value is a misconfiguration, and a gate
+   * that falls open on one is how a private record becomes public — a deployer
+   * who has not yet decided who may sign in should have an app that lets no one
+   * in, not one that lets everyone in. To open the app to **any** signed-in
+   * Google account, say so out loud with the single entry ["*"]; that is a
+   * decision somebody made, and it reads like one both here and in the
+   * generated rules.
+   *
+   * Entries are matched against the whole domain after the final "@", so a
+   * look-alike ("evilgpmail.org", "gpmail.org.evil.com") and a subdomain
+   * ("sub.acts2.network") are both refused. See emailAllowed in firebase.js. */
+  allowedDomains: ["gpmail.org", "acts2.network"],
+  /* The one domain named on the sign-in prompt ("Sign in with your
+   * @acts2.network account"). Every entry in allowedDomains can sign in;
+   * naming one keeps the instruction short, so a deploy with several domains
+   * should name whichever one most members actually have. */
+  primaryDomain: "acts2.network",
+  /* The option list behind the profile form's ministry-group picker — the
+   * congregations, campuses or small groups a member can say they belong to,
+   * and one of the three fields the leaderboard slices by. Keep it in whatever
+   * order the group itself would read them in, with an "Other" catch-all
+   * pinned last for members whose group is not listed. */
+  ministryGroups: [
+    "A2F",
+    "Kairos",
+    "USF",
+    "SFSU",
+    "BAC",
+    "Womens",
+    "DVC",
+    "Acts2 Next",
+    "A2K",
+    "AYM IH",
+    "AYM Oak",
+    "AVL",
+    "F2W",
+    "Element HS",
+    "Element MS",
+    "Impact Elem",
+    "Impact Youth",
+    "Doulos",
+    "IGSM",
+    "ISMP UCB 1",
+    "ISMP UCB 2",
+    "ISMP NE",
+    "ISMP BCC",
+    "Aletheia",
+    "VSM",
+    "ECM",
+    "Other",
+  ],
+  /* What the three shelves are called on screen, keyed by the category key in
+   * src/categories.js. Only the display name is configurable, and that is the
+   * whole point: the **key** is written into every passage record and into each
+   * saved setup form, so it is data and must not move — renaming a shelf here
+   * changes what a member reads and nothing else. A key left out keeps the
+   * name in categories.js, and a key nobody recognizes is ignored. The short
+   * tab labels stay put; they are already generic. */
+  categoryNames: {
+    core: "Verses Every Self Respecting Christian Should Know",
+    psalms: "Psalms",
+    dt: "DT Passages",
+  },
   /* The shortest time the opening splash stays up, in milliseconds. It sits
    * here rather than in App.js because it is a matter of taste — how long the
    * registration mark is worth watching — and so it can be retuned per deploy
