@@ -1,6 +1,6 @@
 /* Firebase authentication + cloud sync.
  *
- * Access is restricted to Google accounts in the Acts 2 Network Workspace
+ * Access is restricted to Google accounts in this deployment's Workspace
  * domains (see ALLOWED_DOMAINS below). Enforcement is twofold: (1) the client
  * rejects and signs out any account outside those domains, and (2) Firestore
  * security rules (deploy/firestore.rules) allow access only to verified
@@ -27,12 +27,13 @@
  *   3. Add the app's domain under Authentication → Settings → Authorized
  *      domains.
  *
- * Note: because sign-in spans two Workspace domains, Google's single-domain `hd`
- * hint is not used and the OAuth consent screen cannot be locked to one
- * Workspace. Domain membership is enforced by emailAllowed() and the rules.
+ * Note: because sign-in can span more than one Workspace domain, Google's
+ * single-domain `hd` hint is not used and the OAuth consent screen cannot be
+ * locked to one Workspace. Domain membership is enforced by emailAllowed() and
+ * the rules.
  */
 
-import { firebaseConfig, isFirebaseConfigured } from "./config.js";
+import { appConfig, firebaseConfig, isFirebaseConfigured } from "./config.js";
 import { registerRemoteSync, mergeProgress, mergeLog } from "./storage.js";
 import { cleanDisplayName, mergeProfile } from "./profile.js";
 import { rowFromSummary, summarize } from "./standings.js";
@@ -47,16 +48,47 @@ const PUSH_DEBOUNCE_MS = 800;
 const PUSH_RETRIES = 3;
 const PUSH_RETRY_MS = 4000;
 
-/* Google Workspace domains permitted to sign in (Acts 2 Network).
+/* The one entry that means "any signed-in Google account", spelled out rather
+ * than inferred. See normalizeDomains below for why it has to be said. */
+export const ANY_DOMAIN = "*";
+
+/* Read the configured domain list into the shape the check below wants: lower
+ * case, trimmed, a leading "@" forgiven (a deployer typing "@acts2.network" has
+ * plainly said what they meant), and anything that is not a non-empty string
+ * dropped. Whatever survives is compared **whole**, never as a substring, which
+ * is what keeps a look-alike domain out however the list was written.
+ *
+ * The one thing this deliberately does not do is invent a value. A list that
+ * comes back empty — unset, misspelled as a string instead of an array, or
+ * filtered down to nothing by the rules above — stays empty, and an empty list
+ * admits nobody. Falling open on a missing value is how a private record
+ * becomes public: the failure would be silent, would look exactly like a
+ * working app, and the first person to notice would be a stranger reading the
+ * group's progress. Opening the app to any account is a real thing to want, so
+ * it is available — but only by saying ANY_DOMAIN out loud in the config, where
+ * it reads as a decision somebody made rather than as something they forgot. */
+export function normalizeDomains(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((d) => typeof d === "string")
+    .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+    .filter(Boolean);
+}
+
+/* Google Workspace domains permitted to sign in, from appConfig.allowedDomains
+ * (src/config.js, overridable per deploy via window.__APP_CONFIG__).
  *
  * This list is only half the gate. The authoritative check is in
- * deploy/firestore.rules — adding or removing a domain means editing BOTH and
- * redeploying the rules; changing this file alone is insecure and ineffective. */
-export const ALLOWED_DOMAINS = ["gpmail.org", "acts2.network"];
+ * deploy/firestore.rules — which is why that file is **generated from this same
+ * setting** by tools/gen_rules.mjs (`npm run rules`) rather than kept in step by
+ * hand. Change the domains, re-run the generator, redeploy the rules; a client
+ * that admits a domain the deployed rules refuse fails every read and write for
+ * those members, and the app cannot tell that from their having no record. */
+export const ALLOWED_DOMAINS = normalizeDomains(appConfig.allowedDomains);
 
 /* The domain named on the sign-in screen. Accounts in any ALLOWED_DOMAINS entry
  * can sign in; naming one keeps the prompt short. */
-export const PRIMARY_DOMAIN = "acts2.network";
+export const PRIMARY_DOMAIN = appConfig.primaryDomain;
 
 let services = null; // memoized { app, auth, db, authMod, dbMod }
 
@@ -118,12 +150,27 @@ export async function logAnalyticsEvent(name, params) {
 
 /* True only for an address in one of the allowed Workspace domains. Matches the
  * exact domain after the final "@" (case-insensitive), so look-alikes like
- * "evilgpmail.org" or "gpmail.org.evil.com" are rejected. */
-export function emailAllowed(email) {
+ * "evilgpmail.org" or "gpmail.org.evil.com" are rejected, and so is a subdomain
+ * of an allowed domain — an entry admits itself and nothing else. Making the
+ * list configurable must not make this any softer, so the comparison is still
+ * whole-string equality against a normalized list rather than a pattern.
+ *
+ * The two configured edges: an empty list refuses everybody, and the single
+ * entry ANY_DOMAIN admits any address that is really an address — still not a
+ * bare word, an empty string, or anything that is not a string at all, because
+ * "any account" means any account and not "no check ran".
+ *
+ * `domains` is a parameter with a default rather than a direct read so the
+ * misconfigured cases can be asserted without a second module loaded under a
+ * different config; every caller in the app takes the default. */
+export function emailAllowed(email, domains = ALLOWED_DOMAINS) {
   if (typeof email !== "string") return false;
   const at = email.lastIndexOf("@");
   if (at < 0) return false;
-  return ALLOWED_DOMAINS.includes(email.slice(at + 1).toLowerCase());
+  const domain = email.slice(at + 1).toLowerCase();
+  if (!domain || at === 0) return false;
+  if (domains.length === 1 && domains[0] === ANY_DOMAIN) return true;
+  return domains.includes(domain);
 }
 
 /* Begin observing auth state. Drives onChange({ status, user?, reason? }) where

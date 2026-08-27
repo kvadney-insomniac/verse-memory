@@ -21,6 +21,7 @@ npm run lint           # ESLint (flat config)
 npm run format         # Prettier write   (format:check for CI-style check)
 npm run build          # assemble ./dist (scripts/build.mjs) — the deployable static tree
 npm run keywords       # regenerate data/keywords.js via spaCy (needs: pip install spacy + en_core_web_sm)
+npm run rules          # regenerate deploy/firestore.rules from appConfig.allowedDomains (tools/gen_rules.mjs)
 ESV_API_KEY=… node tools/fetch_passages.mjs             # add passages listed in tools/new-passages.json (authoring only)
 npm run deploy         # build + wrangler deploy (Cloudflare Workers static assets)
 firebase deploy --only firestore:rules                 # deploy deploy/firestore.rules
@@ -323,16 +324,20 @@ The screen itself is **the registration mark**: the app printed in reverse — a
 
 The app is gated behind Google sign-in restricted to the Acts 2 Network Workspace domains. `App.render()` shows `authGate()` — after the splash above — until auth status is `signed-in` or `disabled`. Enforcement is **dual and the client half is not security**:
 
-1. Client: `emailAllowed()` in `src/firebase.js` checks the address against `ALLOWED_DOMAINS`.
+1. Client: `emailAllowed()` in `src/firebase.js` checks the address against `ALLOWED_DOMAINS`, which is `appConfig.allowedDomains` normalized (lower-cased, trimmed, a leading `@` forgiven) and compared **whole** — so a look-alike, a suffix, and a subdomain are all refused.
 2. Authoritative: `deploy/firestore.rules` allows access only to verified identities in those domains.
 
-**To add/remove an allowed domain you must edit BOTH** `ALLOWED_DOMAINS` in `src/firebase.js` **and** the regex in `deploy/firestore.rules`, then redeploy the rules. Changing only the client is insufficient (and insecure). The Firebase modular SDK is dynamically imported from the gstatic CDN (`SDK_VERSION` in `firebase.js`).
+**The domains are configuration now, and the rules are generated from them.** `appConfig.allowedDomains` is the one place they are written; `tools/gen_rules.mjs` (`npm run rules`) imports `ALLOWED_DOMAINS` from `src/firebase.js` — the very list the client checks, normalization included — and writes `deploy/firestore.rules` from a template. So the sequence is: edit the config, `npm run rules`, `firebase deploy --only firestore:rules`. **Do not hand-edit the rules file**; it carries a generated-file header and the edit will come back. `test/rules.test.mjs` is the drift alarm — it asserts the file on disk is still what the configured domains generate, so a change to either half that skipped the other fails the suite. The Firebase modular SDK is dynamically imported from the gstatic CDN (`SDK_VERSION` in `firebase.js`).
+
+Two configured edges are deliberate. **An empty `allowedDomains` admits nobody** — in the client and in the generated rules alike — because falling open on a value somebody forgot is how a private record becomes public, and the failure would look exactly like a working app. To open the app to any signed-in Google account, the config has to say so out loud with the single entry `["*"]` (`ANY_DOMAIN`); beside a real domain it is just a domain that matches nothing, and the generator refuses the pair rather than guessing. The generator also refuses any entry that is not a bare hostname, since a rules file that compiles and means something else is worse than one that was never written.
 
 The two halves drifting apart is not a hypothetical: a client that admits a domain the deployed rules do not means every read and write is refused for those members, which the app cannot tell from having no record — so they are asked to set up a profile on each device and nothing syncs. **`.github/workflows/deploy.yml` therefore deploys `firestore:rules` alongside hosting on every push to `main`**, so the client half can never ship without the rules half. Deploying by hand (`firebase deploy --only firestore:rules`) still works and is what to reach for when the rules alone are behind.
 
 ### Configuration (config from environment)
 
-Defaults (church name, deadline, splash floor, Firebase config) live in `src/config.js`. Deploy-time overrides are injected as `window.__APP_CONFIG__` / `window.__FIREBASE_CONFIG__` by an optional root `config.js` (gitignored; template is `config.example.js`), loaded before the app. The Firebase web config is public by design (access is governed by Firestore rules), so it ships as the default in `src/config.js`.
+Defaults live in `src/config.js`. Deploy-time overrides are injected as `window.__APP_CONFIG__` / `window.__FIREBASE_CONFIG__` by an optional root `config.js` (gitignored; template is `config.example.js`), loaded before the app. The Firebase web config is public by design (access is governed by Firestore rules), so it ships as the default in `src/config.js`.
+
+**Everything church-specific is a setting**, so the app is deployable by anyone and the existing deploy is just the one whose values are the defaults: `groupName`, `motto` (empty by default — the line is simply not drawn), `deadline`, `splashMinMs`, `transcribeUrl`, `allowedDomains` + `primaryDomain` (see Auth gating), `ministryGroups` (read by `profile.js`, which drops anything that is not a non-empty string), and `categoryNames` (read by `categories.js`). `categoryNames` reaches the display **name** only and per key, so a partial map renames exactly what it mentions — the `key` is written into every passage record and every saved setup form, so it is data and does not move (see The three shelves). `docs/DEPLOYING.md` is the walk-through for a new church; the `LICENSE` copyright stays as it is wherever the code goes.
 
 One override is sharp enough to have its own guard: `window.__FIREBASE_CONFIG__ = null` disables cloud sync entirely, which is a reasonable thing to want while looking at the app locally without signing in — but `scripts/build.mjs` prefers the local `config.js` over the template, so a build made with that line live ships a **site with no sign-in and no cross-device progress, saying nothing about it**. The build now evaluates the config it is about to ship and **refuses** when it reads `null`, unless `ALLOW_LOCAL_ONLY_BUILD=1` says it was meant.
 

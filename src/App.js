@@ -462,7 +462,8 @@ export class App extends React.Component {
       () => this.setState((s) => (s.auth.status === "loading" ? { auth: { status: "signed-out" } } : null)),
       SPLASH_MAX_MS,
     );
-    // Auth + cloud sync. Access is gated to Acts 2 Network Google accounts; on a
+    // Auth + cloud sync. Access is gated to the configured Google Workspace
+    // domains (appConfig.allowedDomains, src/config.js); on a
     // valid sign-in, remote progress is pulled and reconciled with local, and the
     // leaderboard roster is loaded. If Firebase is unreachable the status becomes
     // "disabled" and the app runs local-only rather than locking members out.

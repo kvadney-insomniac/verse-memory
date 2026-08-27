@@ -18,15 +18,31 @@
  * viewmodel/totals.js. The other two are worth learning and count on the
  * leaderboard, but they are not what the pace on the board is counting down. */
 
+import { appConfig } from "./config.js";
+
+/* The shelves as this deployment names them. `appConfig.categoryNames` is a map
+ * of key → display name, and it reaches the `name` only: a church that calls
+ * its devotional shelf something other than "DT Passages" is renaming a label,
+ * not moving a key, and the key is what every passage record and every saved
+ * setup form was written with. A key the deployer left out (or one they invented
+ * that matches no shelf) falls back to the name below, so a partial map renames
+ * exactly what it mentions. The `short` tab labels are not configurable — they
+ * are already generic, and a two-letter tab has nowhere to put a longer word. */
+const displayName = (key, fallback) => {
+  const names = appConfig.categoryNames;
+  const name = names && typeof names === "object" ? names[key] : undefined;
+  return typeof name === "string" && name.trim() ? name : fallback;
+};
+
 export const CATEGORIES = [
   {
     key: "core",
-    name: "Verses Every Self Respecting Christian Should Know",
+    name: displayName("core", "Verses Every Self Respecting Christian Should Know"),
     short: "Core verses",
     goal: true,
   },
-  { key: "psalms", name: "Psalms", short: "Psalms" },
-  { key: "dt", name: "DT Passages", short: "DT" },
+  { key: "psalms", name: displayName("psalms", "Psalms"), short: "Psalms" },
+  { key: "dt", name: displayName("dt", "DT Passages"), short: "DT" },
 ];
 
 /* The category the goal counts, and the one a record without a category falls

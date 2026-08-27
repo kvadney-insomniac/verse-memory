@@ -35,7 +35,8 @@ test("an outside account is refused and told why", async ({ app, page }) => {
 
   await page.getByRole("button", { name: /Sign in with Google/ }).click();
 
-  await expect(page.getByText(/isn't an Acts 2 Network account/)).toBeVisible();
+  // The refusal names the configured group (appConfig.groupName), not one church.
+  await expect(page.getByText(/isn't part of Acts 2 Network - Berkeley/)).toBeVisible();
   await expect(app.board).toHaveCount(0);
 });
 
