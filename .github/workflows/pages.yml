@@ -23,7 +23,7 @@ name: Pages
 
 on:
   push:
-    branches: [public-kjv]
+    branches: [main, public-kjv]
   workflow_dispatch:
 
 permissions:
