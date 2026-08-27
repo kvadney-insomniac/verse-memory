@@ -17,6 +17,7 @@ import {
 import { properNouns } from "../src/recital.js";
 import { norm } from "../src/text.js";
 import { passages } from "../data/passages.js";
+import { translation } from "../data/translation.js";
 
 /* ── the tiers moved out of voice.js ──────────────────────────────────────── */
 
@@ -170,13 +171,37 @@ test("the blocklist is the complete collision surface over the whole passage set
     }
     for (const key of properNouns(passage.text)) names.add(key);
   }
-  /* The corpus these figures were measured against. They are expected to move
-   * whenever data/passages.js does — a split passage or a new shelf changes
-   * both — and moving them is the prompt to re-read the loop below rather than
-   * a failure in itself: the surface the blocklist has to cover is exactly this
-   * vocabulary crossed with these names. */
-  assert.equal(vocabulary.size, 1537, "the vocabulary this surface was measured against");
-  assert.equal([...names].filter((w) => w.length >= MIN_PHONETIC_LEN).length, 53, "proper nouns long enough to fire");
+  /* The corpus these figures were measured against, one row per translation
+   * the set has actually been generated in. They move whenever
+   * data/passages.js does — a split passage, a new shelf, or a regeneration in
+   * another translation changes both — and moving them is the prompt to
+   * re-read the loop below rather than a failure in itself: the surface the
+   * blocklist has to cover is exactly this vocabulary crossed with these names.
+   *
+   * Pinning per translation rather than gating the pin to ESV (which is what
+   * test/passages.test.mjs does with Crossway's storage caps) is the choice
+   * here, and the reason is that these figures are not a licence term — they
+   * are a measurement, and a measurement that only runs on one of the two texts
+   * we ship is a measurement that rots on the other. A translation with no row
+   * yet is not a failure; it simply has nothing to have drifted from, and the
+   * loop below is what actually holds. */
+  const MEASURED = {
+    esv: { vocabulary: 1537, names: 53 },
+    kjv: { vocabulary: 1511, names: 63 },
+  };
+  const sounded = [...names].filter((w) => w.length >= MIN_PHONETIC_LEN).length;
+  const measured = MEASURED[translation.id];
+  if (measured) {
+    assert.equal(
+      vocabulary.size,
+      measured.vocabulary,
+      `the ${translation.id} vocabulary this surface was measured against`,
+    );
+    assert.equal(sounded, measured.names, "proper nouns long enough to fire");
+  } else {
+    assert.ok(vocabulary.size > 500, "the shipped set is too small to be the whole corpus");
+    assert.ok(sounded > 0, "and it carries names the phonetic tier can reach");
+  }
 
   /* Nothing gets through. A pair that reaches the phonetic tier here is a pair
    * of real vocabulary words being credited for each other, which is the
@@ -191,15 +216,24 @@ test("the blocklist is the complete collision surface over the whole passage set
     }
   }
 
-  /* And which half of the table is doing the work, pinned. Four of the eight
+  /* And which half of the table is doing the work, pinned. Four of the ten
    * documented pairs cannot fire under this port at all (see the comment on
-   * PHONETIC_BLOCK); these are the four that can. Recomputed here rather than
+   * PHONETIC_BLOCK); these are the six that can. `wouldCollide` is a question
+   * about two strings and nothing else, so this list is the same on every
+   * translation — it is the table being audited here, not the corpus. Recomputed here rather than
    * asserted from the source, so the day one goes inert somebody has to say so
    * on purpose. */
   const live = PHONETIC_BLOCK.filter(([a, b]) => wouldCollide(a, b))
     .map(([a, b]) => `${a}/${b}`)
     .sort();
-  assert.deepEqual(live, ["barak/break", "creator/greater", "david/divide", "sheol/shall"]);
+  assert.deepEqual(live, [
+    "barak/break",
+    "creator/creature",
+    "creator/greater",
+    "david/divide",
+    "ghost/goest",
+    "sheol/shall",
+  ]);
 });
 
 /* The §2 gate with the blocklist taken out of it, so the test can ask what the

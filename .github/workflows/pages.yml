@@ -1,29 +1,29 @@
-# Deploy this fork to GitHub Pages, for free and with no credentials.
+# Deploy the public edition to GitHub Pages — free, and with no credentials
+# beyond the repository itself.
 #
-# The upstream project deploys to Cloudflare Workers and Firebase Hosting, both
-# of which need account secrets this fork does not have (see deploy.yml, which
-# is why it is disabled below). GitHub Pages needs nothing but the repository:
-# the app is a static tree of relative paths, so it serves from a project
-# subpath as happily as from a root.
+# This build is deliberately two things at once, and both are deliberate:
 #
-# The one real difference is that this build is deliberately LOCAL-ONLY.
-# `src/config.js` carries the upstream project's Firebase config, and Firebase
-# refuses an origin that is not on its authorized-domains list — which a fork's
-# github.io address is never going to be. Rather than ship a site whose sign-in
-# button cannot work, the workflow writes a config that turns cloud sync off
-# outright, and `ALLOW_LOCAL_ONLY_BUILD=1` is the build's own escape hatch for
-# saying that on purpose (scripts/build.mjs refuses it by accident).
+#   Public domain. The passage set here is the King James Version, which is in
+#   the public domain in the United States and needs no key, no account and
+#   nobody's permission to redistribute. The upstream project ships the ESV
+#   under Crossway's API terms, which cap what may be stored and which a fork
+#   has no licence to hand out — see README.md.
 #
-# What that means for anyone using the deployed site: progress lives in that
-# browser's localStorage and nowhere else. It does not sync between devices and
-# it never reaches the church's leaderboard. To change that, point
-# `__FIREBASE_CONFIG__` at a Firebase project of your own and drop the
-# ALLOW_LOCAL_ONLY_BUILD line.
+#   Local-only. There is no sign-in and no cloud sync. Firebase refuses an
+#   origin that is not on its authorized-domains list, and a fork's github.io
+#   address will never be on one, so rather than ship a sign-in button that
+#   cannot work, cloud sync is switched off outright. Progress lives in the
+#   visitor's own browser and goes nowhere else — which for a public demo is
+#   the honest arrangement anyway: nobody signs into a stranger's app to find
+#   out whether they like it.
+#
+# ALLOW_LOCAL_ONLY_BUILD=1 is the build's own escape hatch for saying that on
+# purpose; scripts/build.mjs refuses the configuration by accident.
 name: Pages
 
 on:
   push:
-    branches: [deploy]
+    branches: [public-kjv]
   workflow_dispatch:
 
 permissions:
@@ -31,7 +31,6 @@ permissions:
   pages: write
   id-token: write
 
-# One deploy at a time; a queued run supersedes an older one rather than racing.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -46,22 +45,25 @@ jobs:
           node-version: 22
       - run: npm ci
 
-      # The same gates the upstream CI runs, so a broken tree cannot go live.
+      # The same gates the project runs on itself, so a broken tree cannot go
+      # live in front of strangers.
       - run: npm run lint
       - run: npm test
 
-      - name: Write the local-only runtime config
+      - name: Write the runtime config
         run: |
           cat > config.js <<'EOF'
-          window.__APP_CONFIG__ = {};
+          /* The public edition: no church, no cloud, public-domain text. */
+          window.__APP_CONFIG__ = {
+            groupName: "Public edition — King James Version",
+            motto: "",
+          };
           window.__FIREBASE_CONFIG__ = null;
           EOF
 
       - name: Build
         run: ALLOW_LOCAL_ONLY_BUILD=1 npm run build
 
-      # Pages serves what it is given; a 404 on a deep link is not a concern
-      # here because the app is a single page that routes in memory.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

@@ -176,17 +176,26 @@ const homophone = (a, b) => HOMOPHONE_INDEX.get(a)?.has(b) === true;
  * ordinary vocabulary word under the gate. Listed by name rather than described
  * by a rule, because a risk surface you can read is a risk surface you can
  * reason about — and because `test/wordmatch.test.mjs` recomputes the collision
- * set over all 183 shipped passages and fails loudly the day a new passage
+ * set over every shipped passage and fails loudly the day a new passage
  * introduces one this table does not name.
  *
- * These are the eight pairs `docs/research/scoring.md` §2 measured. Under this
- * port of the algorithm only four of them can actually fire — the other four
- * are stopped by a gate before their keys are ever compared (`even` and `jews`
- * are under five letters; `better` keeps its B where Philips' own reference
- * would fold it into P; `destroyer` carries a second R). The inert four are
- * kept regardless, because a table entry costs a line and deleting one would
- * only invite somebody to re-derive why it was safe. Which four are live is a
- * property of the code, so the test measures it rather than trusting this
+ * The first eight are the pairs `docs/research/scoring.md` §2 measured over the
+ * ESV set. The last two were found the same way when the set was regenerated in
+ * a public-domain translation, and they are the mechanism working rather than a
+ * surprise: **the surface belongs to the corpus, so changing the corpus grows
+ * it.** `Creator` against `creature` and `Ghost` (as in Holy Ghost) against
+ * `goest` are exactly the kind of pair the gate exists to refuse — a member who
+ * says one of them has said a different word, and crediting it would be the
+ * scorer marking its own homework. They cost nothing on a set that does not use
+ * them, which is why the table is one table rather than one per translation.
+ *
+ * Under this port of the algorithm only six of the ten can actually fire — the
+ * other four are stopped by a gate before their keys are ever compared (`even`
+ * and `jews` are under five letters; `better` keeps its B where Philips' own
+ * reference would fold it into P; `destroyer` carries a second R). The inert
+ * four are kept regardless, because a table entry costs a line and deleting one
+ * would only invite somebody to re-derive why it was safe. Which six are live is
+ * a property of the code, so the test measures it rather than trusting this
  * comment. */
 export const PHONETIC_BLOCK = [
   ["creator", "greater"],
@@ -197,6 +206,8 @@ export const PHONETIC_BLOCK = [
   ["david", "divide"],
   ["destroy", "destroyer"],
   ["barak", "break"],
+  ["creator", "creature"],
+  ["ghost", "goest"],
 ];
 
 const BLOCK_INDEX = new Set();

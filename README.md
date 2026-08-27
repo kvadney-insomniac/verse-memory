@@ -1,14 +1,46 @@
-# Verse Mastery
+# Verse Mastery — public edition
 
-A spaced-repetition Bible-verse memorization app for **Acts 2 Network - Berkeley**.
-Members work through a set of passages, review them in several modes, and watch a
-"freshness" score decay and recover along the Ebbinghaus forgetting curve so they
-know what to revisit and when.
+A spaced-repetition Bible-verse memorization app. Work through a set of
+passages, review them several ways, and watch a "freshness" score decay and
+recover along the Ebbinghaus forgetting curve so you know what to revisit and
+when. There is also a **Speak mode** that runs hands-free — the app reads a
+reference, you recite the verse aloud, and it marks you — and a **Run mode**
+that calls verses out over a synthesized beat.
 
-It is a **static, no-build, client-side app**: React and [htm](https://github.com/developit/htm)
-are loaded from a CDN, and the source ships as native ES modules — there is no
-bundler or transpile step. Progress is stored in the browser (`localStorage`),
-with an optional Firebase seam for cloud sync.
+**Try it: https://kvadney-insomniac.github.io/verse-mastery/**
+
+No sign-up, nothing to install. Progress is saved in your own browser and goes
+nowhere else — there is no account and no server holding your data.
+
+---
+
+## Where this came from, and what is different here
+
+**Verse Mastery was written for [Acts 2 Network - Berkeley](https://github.com/godwinlaw/verse-memory), and the design and the great majority of the code are theirs.** This is a
+derived edition under the MIT licence, and it exists because their build cannot
+be redistributed as-is:
+
+- **The text.** The original ships the **ESV**, © Crossway, under API terms
+  that cap what may be stored and that a fork has no licence to hand out. This
+  edition ships the **King James Version**, which is in the public domain in the
+  United States, so anyone may run it, fork it, or deploy their own.
+- **The congregation.** The original is gated to one church's Google Workspace
+  domains. Here every church-specific value is a setting, and this deployment
+  simply sets none of them.
+
+This is **not** Acts 2 Network's app and does not speak for them. If you are a
+member there, use their deployment, not this one.
+
+## Deploy your own
+
+Everything a congregation needs to change is configuration rather than code —
+sign-in domains, group name, ministry groups, category names, the goal deadline.
+See **[docs/DEPLOYING.md](docs/DEPLOYING.md)** for standing up an instance with
+your own Firebase project, and _Scripture text_ below for choosing a
+translation. Deploying to GitHub Pages costs nothing and needs no credentials:
+`.github/workflows/pages.yml` in this repo is a working example.
+
+---
 
 ## Features
 
