@@ -16,6 +16,7 @@ import {
 import { gradeWritten } from "../src/grading.js";
 import { norm } from "../src/text.js";
 import { mulberry32 } from "../src/review.js";
+import { HOMOPHONES, MIN_FUZZY_LEN, MIN_PHONETIC_LEN, wordMatch } from "../src/wordmatch.js";
 import { passages } from "../data/passages.js";
 
 /* The fixtures below are all real passage text — the whole point of the design
@@ -38,6 +39,84 @@ const PSALM23 = of("Psalm 23");
  * as the figure the fixtures are aimed at. */
 const COMMIT = 0.95;
 
+/* ── deriving a fixture from whatever translation is shipped ──────────────── */
+
+/* The scoring rules are facts about alignment, not about a wording, and these
+ * fixtures now have to be the same: the app's text is pluggable, this branch
+ * ships a public-domain translation so the repo can be handed to strangers, and
+ * the very same test files ship beside the ESV set the congregation uses. So
+ * nothing below quotes a word of scripture. A false start is built from the
+ * passage's own opening words, a dropped word is a word the passage actually
+ * has, and a misremembered word is manufactured out of the spelling in hand —
+ * which is a better test than a quoted string ever was, because what is being
+ * asserted is the mechanism rather than one publisher's phrasing.
+ *
+ * Where a fixture needs a *feature* the shipped text may genuinely not have —
+ * a contraction the recognizer can write, a fused word left by the fetcher, a
+ * proper noun only the phonetic tier can reach — it searches the shipped set
+ * for one and skips itself with a reason rather than quietly asserting
+ * nothing. Every derivation below also asserts that it found what it went
+ * looking for, because a mangle that silently failed to apply is a fixture
+ * that passes while testing air. */
+
+/* The passage's words as the recognizer would hand them back. */
+const heard = (passage) => spoken(passage).split(" ");
+
+/* How many words the passage is scored out of. */
+const length = (passage) => passage.text.split(" ").length;
+
+/* A passage word with its punctuation still on, found by what it normalizes
+ * to — which is how a fixture names the diff entry it expects without quoting
+ * anything. */
+const raw = (passage, key) => passage.text.split(" ").find((w) => norm(w) === key);
+
+/* The words a passage uses exactly once, as `[index, word]`. A fixture that
+ * mangles one of these is mangling something the aligner cannot confuse with
+ * another copy of itself further along, whatever the translation. */
+const uniqueWords = (passage) => {
+  const words = heard(passage);
+  const seen = {};
+  for (const word of words) seen[word] = (seen[word] || 0) + 1;
+  return words.map((word, i) => [i, word]).filter(([, word]) => seen[word] === 1);
+};
+
+/* Words the member might have said that this passage will not credit against
+ * anything. They are picked by asking `wordMatch` rather than by being
+ * obviously silly, so no translation can undermine a fixture by happening to
+ * use one of them — and the caller is told outright if the passage leaves it
+ * short. */
+const NONSENSE = ["trombone", "penguin", "zucchini", "asteroid", "bicycle", "umbrella"];
+const foreignTo = (passage, n) => {
+  const words = heard(passage);
+  const usable = NONSENSE.filter((candidate) => words.every((word) => wordMatch(candidate, word) === null));
+  assert.ok(usable.length >= n, `${passage.ref} leaves fewer than ${n} words nothing in it can match`);
+  return usable.slice(0, n);
+};
+
+/* One vowel swapped is one edit and two is two, which is past every tier there
+ * is. That is how a fixture manufactures a misremembered word out of whatever
+ * spelling the shipped text uses; `null` back means the word had too few
+ * vowels to mangle that far, and the caller looks for another. */
+const vowelSwap = (word, count) => {
+  const letters = [...word];
+  let done = 0;
+  for (let i = 1; i < letters.length - 1 && done < count; i++) {
+    if ("aeiou".includes(letters[i])) {
+      letters[i] = letters[i] === "a" ? "e" : "a";
+      done++;
+    }
+  }
+  return done === count ? letters.join("") : null;
+};
+
+/* Substituting `swaps` (a map from the passage's word to what was said
+ * instead) into the transcript, asserting that every one of them applied. */
+const misspeak = (passage, swaps) => {
+  const words = heard(passage);
+  for (const key of Object.keys(swaps)) assert.ok(words.includes(key), `${passage.ref} does not say "${key}"`);
+  return words.map((word) => swaps[word] ?? word).join(" ");
+};
+
 /* ── the cost matrix's one invariant ──────────────────────────────────────── */
 
 /* One line, and it is the line that stops a retune from silently turning every
@@ -48,14 +127,17 @@ const COMMIT = 0.95;
 test("INS + OMIT > SUB, so a one-for-one swap is reported as a substitution", () => {
   assert.ok(COST.INS + COST.OMIT > COST.SUB, `${COST.INS} + ${COST.OMIT} must exceed ${COST.SUB}`);
 
-  const heard = spoken(PROVERBS).replace("heart", "hard");
-  const graded = scoreRecital(PROVERBS, heard);
+  /* One word of the passage, said as something the passage cannot credit —
+   * whichever word that turns out to be in the translation in hand. */
+  const [, word] = uniqueWords(PROVERBS).findLast(([, w]) => w.length >= MIN_FUZZY_LEN);
+  const [instead] = foreignTo(PROVERBS, 1);
+  const graded = scoreRecital(PROVERBS, misspeak(PROVERBS, { [word]: instead }));
   assert.equal(graded.counts.sub, 1, "reported as one substitution");
   assert.equal(graded.counts.omit, 0, "not as an omission");
   assert.equal(graded.counts.ins, 0, "plus an insertion");
-  const entry = graded.diff.find((d) => d.word === "heart,");
+  const entry = graded.diff.find((d) => d.word === raw(PROVERBS, word));
   assert.equal(entry.kind, "sub");
-  assert.equal(entry.heard, "hard", "and the diff can name what was said instead");
+  assert.equal(entry.heard, instead, "and the diff can name what was said instead");
 });
 
 test("the graded tiers are priced apart, so a tie prefers the exact reading", () => {
@@ -68,9 +150,14 @@ test("the graded tiers are priced apart, so a tie prefers the exact reading", ()
 /* ── §6, the twenty fixtures ──────────────────────────────────────────────── */
 
 /* Each case names what the member did, what today's grader says about it, and
- * the range the new scorer must land in. The `today` figures are measured here
- * rather than quoted, so the regression they describe is demonstrated by the
- * suite rather than asserted by a comment. */
+ * where the new scorer must land. The `today` figures are measured here rather
+ * than quoted, so the regression they describe is demonstrated by the suite
+ * rather than asserted by a comment — and they are compared against a bound
+ * rather than pinned to a percentage, since how badly the positional grader
+ * collapses depends on the wording it collapsed on. Where the mark itself can
+ * be stated as arithmetic over the words the member did not recall, it is:
+ * `(total − missed) / total` says what the score *is*, where a hand-measured
+ * range only ever said what it was on one translation. */
 const today = (passage, transcript) => gradeWritten(passage.text.split(" "), transcript).score;
 
 test("1. a word-perfect recital scores exactly 1.00", () => {
@@ -85,69 +172,174 @@ test("1. a word-perfect recital scores exactly 1.00", () => {
 test("2. a leading filler is free", () => {
   const graded = scoreRecital(PROVERBS, `um ${spoken(PROVERBS)}`);
   assert.equal(graded.score, 1);
-  assert.equal(graded.heardCount, 29, "the disfluency is not even a token");
+  assert.equal(graded.heardCount, transcriptTokens(spoken(PROVERBS)).length, "the disfluency is not even a token");
 });
 
 test("3. ★ a three-word false start no longer stalls the grader", () => {
-  const heard = `trust in the ${spoken(PROVERBS)}`;
-  assert.equal(Math.round(today(PROVERBS, heard) * 100), 14, "the failure this module exists to fix");
+  /* The regression test this whole module exists for, and the one fixture that
+   * has to keep both halves: a member runs at the verse, stops, and starts
+   * again. Measured on the ESV set the failure was 14%; on the public-domain
+   * set it is 15%. The figure is not the point and is not pinned — what is
+   * pinned is that the positional grader still collapses on a word-perfect
+   * recital and that this one does not. */
+  const opening = heard(PROVERBS).slice(0, 3).join(" ");
+  const transcript = `${opening} ${spoken(PROVERBS)}`;
+  const before = today(PROVERBS, transcript);
+  assert.ok(before < 0.25, `the failure this module exists to fix — the old grader says ${Math.round(before * 100)}%`);
 
-  const graded = scoreRecital(PROVERBS, heard);
+  const graded = scoreRecital(PROVERBS, transcript);
   assert.ok(graded.score >= 0.98, `scored ${graded.pct}%`);
   assert.ok(graded.score >= COMMIT, "and clears the commit bar");
+  assert.ok(graded.score > before + 0.7, "which is the whole distance between the two graders");
   assert.equal(graded.counts.ins, 3, "the false start is absorbed as three insertions");
-  assert.equal(graded.credited, 29, "each reference word is credited exactly once");
+  assert.equal(graded.credited, graded.total, "each reference word is credited exactly once");
 });
 
 test("4. a self-correction is one production, credited once and penalized never", () => {
-  const heard =
-    "trust in the lord with all your soul no wait with all your heart and do not lean on your own " +
-    "understanding in all your ways acknowledge him and he will make straight your paths";
-  assert.ok(today(PROVERBS, heard) < 0.3, "today it scores about a quarter");
-  assert.equal(scoreRecital(PROVERBS, heard).score, 1);
+  /* The member says a word the verse does not want, hears themselves do it,
+   * and runs at the clause again from three words back. Everything in that
+   * repair is a token the passage never asked for, so every one of them should
+   * be absorbed and every reference word credited once. */
+  const words = heard(PROVERBS);
+  const at = Math.floor(words.length / 3);
+  const [wrong, hesitation] = foreignTo(PROVERBS, 2);
+  const repair = [...words.slice(0, at), wrong, hesitation, ...words.slice(at - 3)];
+  const transcript = repair.join(" ");
+
+  const before = today(PROVERBS, transcript);
+  assert.ok(before < 0.5, `today a repaired clause costs most of the verse — ${Math.round(before * 100)}%`);
+  const graded = scoreRecital(PROVERBS, transcript);
+  assert.equal(graded.score, 1);
+  assert.equal(graded.counts.ins, repair.length - words.length, "every repeated and every wrong word absorbed");
+  assert.equal(graded.counts.omit + graded.counts.sub, 0, "and nothing charged for the repair");
 });
 
-test("5. a contraction the recognizer wrote is not a word the member dropped", () => {
-  const heard = spoken(PROVERBS).replace("do not", "don't");
-  assert.ok(today(PROVERBS, heard) < 1, "today it costs a word");
-  assert.equal(scoreRecital(PROVERBS, heard).score, 1);
-});
+/* The recognizer writes contractions the passage does not have, and it costs a
+ * word under a positional grader. Whether the shipped text offers the case at
+ * all is a translation's business, so the set is searched for a passage with a
+ * contractible pair rather than one being quoted. */
+const CONTRACTIBLE = {
+  "do not": "don't",
+  "does not": "doesn't",
+  "is not": "isn't",
+  "are not": "aren't",
+  "was not": "wasn't",
+  "will not": "won't",
+  "it is": "it's",
+  "that is": "that's",
+  "there is": "there's",
+  "he is": "he's",
+  "she is": "she's",
+  "what is": "what's",
+  "let us": "let's",
+  "i will": "i'll",
+  "you will": "you'll",
+  "we will": "we'll",
+  "they will": "they'll",
+  "i am": "i'm",
+  "you are": "you're",
+  "we are": "we're",
+  "they have": "they've",
+  "i have": "i've",
+};
+
+const contraction = (() => {
+  for (const passage of passages) {
+    const words = heard(passage);
+    for (let i = 0; i < words.length - 1; i++) {
+      const form = CONTRACTIBLE[`${words[i]} ${words[i + 1]}`];
+      if (form) return { passage, transcript: [...words.slice(0, i), form, ...words.slice(i + 2)].join(" "), form };
+    }
+  }
+  return null;
+})();
+
+test(
+  "5. a contraction the recognizer wrote is not a word the member dropped",
+  { skip: contraction ? false : "no shipped passage contains a pair this translation could contract" },
+  () => {
+    const { passage, transcript, form } = contraction;
+    assert.ok(today(passage, transcript) < 1, `today "${form}" costs a word of ${passage.ref}`);
+    assert.equal(scoreRecital(passage, transcript).score, 1);
+  },
+);
 
 test("6. ★ the negative control — wrong words stay wrong", () => {
-  // `hard` is not a proper noun, so the phonetic tier does not fire; `past` is
-  // two edits from `paths` and is a genuinely different word.
-  const heard = spoken(PROVERBS).replace("heart", "hard").replace("paths", "past");
-  const graded = scoreRecital(PROVERBS, heard);
-  assert.ok(graded.score >= 0.9 && graded.score <= 0.94, `scored ${graded.pct}%`);
+  /* Enough words said wrong that the commit bar's 5% margin cannot cover them,
+   * and said as words nothing in the passage will credit — the phonetic tier
+   * included, since these are not proper nouns. Forgiveness has a floor and
+   * this is where it is. */
+  const wrong = Math.floor(length(PROVERBS) * 0.05) + 1;
+  const targets = uniqueWords(PROVERBS)
+    .filter(([, w]) => w.length >= MIN_FUZZY_LEN)
+    .slice(-wrong);
+  assert.equal(targets.length, wrong, `${PROVERBS.ref} has too few distinctive words to mangle`);
+  const instead = foreignTo(PROVERBS, wrong);
+  const swaps = Object.fromEntries(targets.map(([, word], i) => [word, instead[i]]));
+  for (const [word, said] of Object.entries(swaps)) {
+    assert.equal(wordMatch(said, word, { proper: true }), null, `${said}/${word} must not be creditable at all`);
+  }
+
+  const graded = scoreRecital(PROVERBS, misspeak(PROVERBS, swaps));
+  assert.equal(graded.counts.sub, wrong, `scored ${graded.pct}%`);
+  assert.equal(graded.score, (graded.total - wrong) / graded.total, "exactly the words that were not recalled");
   assert.ok(graded.score < COMMIT, "and does not clear the commit bar");
   assert.equal(graded.strictScore, graded.score, "no phonetic credit was involved either way");
 });
 
 test("7. a single dropped conjunction still clears the commit bar", () => {
-  const graded = scoreRecital(PROVERBS, spoken(PROVERBS).replace(" and do not", " do not"));
-  assert.ok(graded.score >= 0.95 && graded.score <= 0.97, `scored ${graded.pct}%`);
+  /* One word gone — a word the passage says only once, so the omission cannot
+   * be papered over by another copy of it further along. */
+  assert.ok(length(PROVERBS) >= 20, "a passage this short would fail the bar on one word, which is not the case");
+  const [, dropped] = uniqueWords(PROVERBS).find(([, w]) => w.length <= 4);
+  const graded = scoreRecital(
+    PROVERBS,
+    heard(PROVERBS)
+      .filter((word) => word !== dropped)
+      .join(" "),
+  );
+  assert.equal(graded.counts.omit, 1, `dropped "${dropped}", scored ${graded.pct}%`);
+  assert.equal(graded.score, (graded.total - 1) / graded.total);
   assert.ok(graded.score >= COMMIT, "which is exactly what COMMIT_SCORE's 5% margin is for");
 });
 
 test("8. genuine recall errors score below commit", () => {
-  const heard = spoken(PROVERBS)
-    .replace("understanding", "knowledge")
-    .replace("straight your paths", "straight your ways");
-  const graded = scoreRecital(PROVERBS, heard);
-  assert.ok(graded.score >= 0.9 && graded.score <= 0.94, `scored ${graded.pct}%`);
+  /* Not nonsense this time but near neighbours — the passage's own words with
+   * two vowels wrong, which is what half-remembering sounds like. Two edits is
+   * past the edit tier, and these are ordinary words rather than names, so the
+   * phonetic tier is gated shut over them however alike they sound. That gate
+   * is the assertion underneath this one: several of these variants *would* be
+   * credited if the reference word were a proper noun, and are not. */
+  const wrong = Math.floor(length(PROVERBS) * 0.05) + 1;
+  const names = properNouns(PROVERBS.text);
+  const swaps = {};
+  for (const [, word] of uniqueWords(PROVERBS)) {
+    if (Object.keys(swaps).length === wrong) break;
+    const near = word.length >= MIN_FUZZY_LEN && !names.has(word) ? vowelSwap(word, 2) : null;
+    if (near && wordMatch(near, word) === null) swaps[word] = near;
+  }
+  assert.equal(Object.keys(swaps).length, wrong, `${PROVERBS.ref} offers too few words to half-remember`);
+  const wouldPass = Object.entries(swaps).filter(([word, near]) => wordMatch(near, word, { proper: true }));
+  assert.ok(wouldPass.length > 0, "and at least one of them is refused only because the word is not a name");
+
+  const graded = scoreRecital(PROVERBS, misspeak(PROVERBS, swaps));
+  assert.equal(graded.counts.sub, wrong, `scored ${graded.pct}%`);
+  assert.equal(graded.score, (graded.total - wrong) / graded.total);
   assert.ok(graded.score < COMMIT);
 });
 
-test("9. ★ a transcript that cut out abstains rather than asserting 7%", () => {
-  assert.ok(today(PROVERBS, "trust in") < 0.1, "today it says seven percent about two tokens");
+test("9. ★ a transcript that cut out abstains rather than asserting a number", () => {
+  const clipped = heard(PROVERBS).slice(0, 2).join(" ");
+  const before = today(PROVERBS, clipped);
+  assert.ok(before < 0.2, `today it says ${Math.round(before * 100)} percent about two tokens`);
 
-  const graded = scoreRecital(PROVERBS, "trust in");
+  const graded = scoreRecital(PROVERBS, clipped);
   assert.equal(graded.abstained, true);
   assert.equal(graded.reason, ABSTAIN.SHORT);
   assert.equal(graded.score, null, "null rather than 0, so nothing downstream can average it");
   assert.equal(graded.pct, null);
   assert.equal(graded.strictScore, null);
-  assert.equal(graded.total, 29, "the passage is still described");
+  assert.equal(graded.total, length(PROVERBS), "the passage is still described");
   assert.equal(graded.heardCount, 2);
 });
 
@@ -158,55 +350,132 @@ test("10. an empty transcript abstains", () => {
   assert.equal(graded.score, null);
 });
 
-test("11. length is not the problem — all 113 words of Psalm 23", () => {
+test(`11. length is not the problem — all ${length(PSALM23)} words of Psalm 23`, () => {
   assert.equal(scoreRecital(PSALM23, spoken(PSALM23)).score, 1);
 });
 
 test("12. ★ a genuinely forgotten verse is not rescued", () => {
-  const verse3 = "He restores my soul. He leads me in paths of righteousness for his name’s sake.";
-  const gone = verse3.split(" ").map(norm).join(" ");
-  const heard = spoken(PSALM23).replace(`${gone} `, "");
+  /* A whole verse gone out of the middle, taken from the passage's own `verses`
+   * array so the fixture drops exactly what one verse is in whatever
+   * translation is shipped. */
+  assert.ok(Array.isArray(PSALM23.verses) && PSALM23.verses.length >= 3, "Psalm 23 ships as verses");
+  const gone = PSALM23.verses[2].split(" ").map(norm).filter(Boolean).join(" ");
+  const transcript = spoken(PSALM23).replace(`${gone} `, "");
+  assert.notEqual(transcript, spoken(PSALM23), "the verse really came out");
 
-  const graded = scoreRecital(PSALM23, heard);
-  assert.ok(graded.score >= 0.86 && graded.score <= 0.88, `scored ${graded.pct}% — 15 of 113 words gone`);
-  assert.equal(graded.counts.omit, 15);
+  const graded = scoreRecital(PSALM23, transcript);
+  const missing = gone.split(" ").length;
+  assert.equal(graded.counts.omit, missing);
+  assert.equal(graded.score, (graded.total - missing) / graded.total, `${missing} of ${graded.total} words gone`);
   assert.ok(graded.score < COMMIT, "the whole point: forgiveness has a floor");
 });
 
 test("13. ★ the stall, on a long passage", () => {
-  const heard = `${spoken(PSALM23).split(" ").slice(0, 6).join(" ")} ${spoken(PSALM23)}`;
-  assert.equal(Math.round(today(PSALM23, heard) * 100), 8, "today: six words in, restarted, and scored eight percent");
-  assert.ok(scoreRecital(PSALM23, heard).score >= 0.98);
+  const transcript = `${heard(PSALM23).slice(0, 6).join(" ")} ${spoken(PSALM23)}`;
+  const before = today(PSALM23, transcript);
+  assert.ok(before < 0.2, `today: six words in, restarted, and scored ${Math.round(before * 100)} percent`);
+  assert.ok(scoreRecital(PSALM23, transcript).score >= 0.98);
 });
 
-test("14. a curated homophone: 'here o israel' for 'Hear, O Israel'", () => {
-  const shema = of("Deuteronomy 6:4-5");
-  const heard = spoken(shema).replace(/^hear/, "here");
-  assert.ok(today(shema, heard) < 1, "today the homophone costs a word");
-  const graded = scoreRecital(shema, heard);
-  assert.equal(graded.score, 1);
-  assert.equal(graded.strictScore, 1, "a homophone earns full credit in the strict figure too");
-  assert.equal(graded.diff[0].kind, "homophone", "and `Hear,` carries punctuation, which norm() settles");
-});
+/* A curated homophone the shipped text actually offers: a word the passage says
+ * once whose partner it never says, so swapping the two is unambiguous. Which
+ * pair that is belongs to the translation, not to this file. */
+const homophonePair = (() => {
+  for (const passage of passages) {
+    const words = heard(passage);
+    for (const [i, word] of uniqueWords(passage)) {
+      for (const pair of HOMOPHONES) {
+        if (!pair.includes(word)) continue;
+        const said = pair[0] === word ? pair[1] : pair[0];
+        if (!words.includes(said)) return { passage, index: i, word, said };
+      }
+    }
+  }
+  return null;
+})();
 
-test("15. the one-edit tier — every 'sows' heard as 'sews'", () => {
-  const galatians = of("Galatians 6:7-9");
-  const heard = spoken(galatians).replace(/\bsows\b/g, "sews");
-  assert.ok(today(galatians, heard) < 1);
-  const graded = scoreRecital(galatians, heard);
-  assert.equal(graded.score, 1);
-  assert.equal(graded.counts.edit, 3, "three occurrences, the case voice.js documents");
-});
+test(
+  "14. a curated homophone is credited, and credited strictly",
+  { skip: homophonePair ? false : "no shipped passage says a word the homophone table has a partner for" },
+  () => {
+    const { passage, index, word, said } = homophonePair;
+    const transcript = misspeak(passage, { [word]: said });
+    assert.ok(today(passage, transcript) < 1, `today "${said}" for "${word}" costs a word`);
 
-test("16. the merge op absorbs the `eagles;they` data bug", () => {
-  const isaiah = of("Isaiah 40:28-31");
-  const heard = spoken(isaiah).replace("eaglesthey", "eagles they");
-  assert.ok(today(isaiah, heard) < 1, "today the fused word is a guaranteed miss");
-  const graded = scoreRecital(isaiah, heard);
-  assert.equal(graded.score, 1);
-  assert.equal(graded.counts.merge, 1);
-  assert.equal(graded.diff.find((d) => d.word === "eagles;they").heard, "eagles they");
-});
+    const graded = scoreRecital(passage, transcript);
+    assert.equal(graded.score, 1);
+    assert.equal(graded.strictScore, 1, "a homophone earns full credit in the strict figure too");
+    assert.equal(graded.counts.homophone, 1);
+    assert.equal(
+      graded.diff[index].kind,
+      "homophone",
+      `and "${raw(passage, word)}" carries its punctuation, which norm() settles`,
+    );
+  },
+);
+
+/* The one-edit tier, exercised on a word the passage repeats — the case
+ * voice.js documents, where the recognizer spells one word wrong and spells it
+ * wrong every time. */
+const misspelling = (() => {
+  const passage = of("Galatians 6:7-9");
+  const words = heard(passage);
+  const seen = {};
+  for (const word of words) seen[word] = (seen[word] || 0) + 1;
+  const repeated = Object.entries(seen)
+    .filter(([word, n]) => n >= 2 && word.length > MIN_FUZZY_LEN)
+    .sort((a, b) => b[1] - a[1]);
+  for (const [word, times] of repeated) {
+    const said = vowelSwap(word, 1);
+    if (said && !words.includes(said) && wordMatch(said, word) === "edit") return { passage, word, said, times };
+  }
+  return null;
+})();
+
+test(
+  "15. the one-edit tier — a repeated word the engine spelled wrong every time",
+  { skip: misspelling ? false : "the shipped passage repeats no word long enough for the edit tier" },
+  () => {
+    const { passage, word, said, times } = misspelling;
+    const transcript = misspeak(passage, { [word]: said });
+    assert.ok(today(passage, transcript) < 1, `today "${said}" for "${word}" costs ${times} words`);
+
+    const graded = scoreRecital(passage, transcript);
+    assert.equal(graded.score, 1);
+    assert.equal(graded.counts.edit, times, `${times} occurrences of "${word}", all heard as "${said}"`);
+  },
+);
+
+/* A word the fetcher left fused — the ESV set carries `eagles;they`, the
+ * public-domain sets carry a hyphenated compound — and the recogniser hands
+ * back the two halves it hears. `merge` is what puts them back together, so
+ * the fixture goes looking for whatever fused word the shipped text has rather
+ * than naming one. */
+const FUSED = /^([A-Za-z]+)[^A-Za-z0-9\s'’]([A-Za-z]+)/;
+const fusedWord = (() => {
+  for (const passage of passages) {
+    for (const word of passage.text.split(" ")) {
+      const parts = word.match(FUSED);
+      if (parts) return { passage, word, said: `${parts[1].toLowerCase()} ${parts[2].toLowerCase()}` };
+    }
+  }
+  return null;
+})();
+
+test(
+  "16. the merge op absorbs a fused word the fetcher left behind",
+  { skip: fusedWord ? false : "the shipped set carries no fused word for the merge op to absorb" },
+  () => {
+    const { passage, word, said } = fusedWord;
+    const transcript = misspeak(passage, { [norm(word)]: said });
+    assert.ok(today(passage, transcript) < 1, `today "${word}" is a guaranteed miss`);
+
+    const graded = scoreRecital(passage, transcript);
+    assert.equal(graded.score, 1);
+    assert.equal(graded.counts.merge, 1);
+    assert.equal(graded.diff.find((d) => d.word === word).heard, said);
+  },
+);
 
 test("17. ★ a passage that once carried an embedded reference now scores whole", () => {
   /* This fixture was the sharpest example of the old grader's unfairness: Luke
@@ -224,24 +493,73 @@ test("17. ★ a passage that once carried an embedded reference now scores whole
 });
 
 test("18. an adjacent transposition costs one word, not two", () => {
+  /* Two neighbouring words said the other way round — whichever pair the
+   * translation puts next to each other, taken from words the passage says
+   * only once so the swap cannot be read as anything else. */
   const philippians = of("Philippians 4:6-7");
-  const heard = spoken(philippians).replace("christ jesus", "jesus christ");
-  const graded = scoreRecital(philippians, heard);
-  assert.ok(graded.score >= 0.97 && graded.score <= 0.98, `scored ${graded.pct}%`);
+  const words = heard(philippians);
+  const once = new Set(uniqueWords(philippians).map(([i]) => i));
+  const at = words.findIndex((word, i) => once.has(i) && once.has(i + 1) && word !== words[i + 1]);
+  assert.ok(at >= 0, `${philippians.ref} has no adjacent pair of once-said words`);
+
+  const graded = scoreRecital(
+    philippians,
+    [...words.slice(0, at), words[at + 1], words[at], ...words.slice(at + 2)].join(" "),
+  );
+  assert.equal(graded.counts.sub + graded.counts.omit, 1, `swapped "${words[at]}" and "${words[at + 1]}"`);
+  assert.equal(graded.score, (graded.total - 1) / graded.total, `scored ${graded.pct}%`);
   assert.ok(graded.score >= COMMIT, "the gap asymmetry gets this for free — no Damerau term needed");
 });
 
-test("19. ★ the proper-noun tiers, and the strict/friendly gap", () => {
-  const isaiah = of("Isaiah 9:1-7");
-  const heard = spoken(isaiah).replace("zebulun", "zebulon").replace("naphtali", "naftali");
-  const graded = scoreRecital(isaiah, heard);
+/* The two proper-noun tiers need a passage carrying two names: one the edit
+ * tier reaches (which is strict-eligible) and one only the phonetic tier can
+ * (which is not). The names a translation transliterates are its own, so the
+ * set is searched for a passage that offers both. */
+const propernouns = (() => {
+  for (const passage of passages) {
+    const words = heard(passage);
+    const names = [...properNouns(passage.text)].filter(
+      (name) => name.length >= MIN_PHONETIC_LEN && words.filter((w) => w === name).length === 1,
+    );
+    const sounded = names.find((name) => {
+      const said = name.replace("ph", "f");
+      return said !== name && !words.includes(said) && wordMatch(said, name, { proper: true }) === "phonetic";
+    });
+    const spelled = names.find((name) => {
+      const said = vowelSwap(name, 1);
+      return name !== sounded && said && !words.includes(said) && wordMatch(said, name, { proper: true }) === "edit";
+    });
+    if (sounded && spelled) {
+      return {
+        passage,
+        sounded,
+        spelled,
+        heardSounded: sounded.replace("ph", "f"),
+        heardSpelled: vowelSwap(spelled, 1),
+      };
+    }
+  }
+  return null;
+})();
 
-  assert.equal(graded.score, 1, "the friendly figure credits both");
-  assert.equal(graded.counts.edit, 1, "zebulon by edit — strict-eligible");
-  assert.equal(graded.counts.phonetic, 1, "naftali by phonetics — not");
-  assert.ok(graded.strictScore >= 0.99 && graded.strictScore < 1, `strict ${graded.strictScore.toFixed(3)}`);
-  assert.equal(graded.strictScore, 242 / 243, "exactly the one phonetic credit's worth");
-});
+test(
+  "19. ★ the proper-noun tiers, and the strict/friendly gap",
+  { skip: propernouns ? false : "no shipped passage carries two names the two tiers can be told apart on" },
+  () => {
+    const { passage, sounded, spelled, heardSounded, heardSpelled } = propernouns;
+    const graded = scoreRecital(passage, misspeak(passage, { [sounded]: heardSounded, [spelled]: heardSpelled }));
+
+    assert.equal(graded.score, 1, "the friendly figure credits both");
+    assert.equal(graded.counts.edit, 1, `"${heardSpelled}" for ${spelled} by edit — strict-eligible`);
+    assert.equal(graded.counts.phonetic, 1, `"${heardSounded}" for ${sounded} by phonetics — not`);
+    assert.ok(graded.strictScore < 1, `strict ${graded.strictScore.toFixed(3)}`);
+    assert.equal(
+      graded.strictScore,
+      (graded.total - 1) / graded.total,
+      "exactly the one phonetic credit's worth, and no more",
+    );
+  },
+);
 
 test("20. ★ reciting twice is flagged, not silently scored", () => {
   const words = spoken(PROVERBS).split(" ");
@@ -470,26 +788,29 @@ test("the diff has one entry per text.split(' ') word, for any transcript at all
   }
 });
 
-test("every one of the 183 passages recited perfectly scores exactly 1.00", () => {
+test(`every one of the ${passages.length} passages recited perfectly scores exactly 1.00`, () => {
   const failures = passages.filter((p) => scoreRecital(p, spoken(p)).score !== 1).map((p) => p.ref);
-  assert.deepEqual(failures, [], "including the four with an embedded reference and the three with a fused word");
+  assert.deepEqual(failures, [], "including any the fetcher left a fused word or an embedded reference in");
 });
 
 test("insertions never appear in the diff, only in ops and counts", () => {
-  const graded = scoreRecital(PROVERBS, `trust in the ${spoken(PROVERBS)}`);
-  assert.equal(graded.diff.length, 29);
+  const graded = scoreRecital(PROVERBS, `${heard(PROVERBS).slice(0, 3).join(" ")} ${spoken(PROVERBS)}`);
+  assert.equal(graded.diff.length, length(PROVERBS));
   assert.equal(graded.ops.filter((o) => o.op === "ins").length, 3);
   assert.equal(graded.counts.ins, 3);
 });
 
 test("the counts are one tally per operation, so they sum to the operation list", () => {
+  const [instead] = foreignTo(PROVERBS, 1);
+  const [, swapped] = uniqueWords(PROVERBS).findLast(([, w]) => w.length >= MIN_FUZZY_LEN);
   const cases = [
     [PROVERBS, spoken(PROVERBS)],
-    [PROVERBS, spoken(PROVERBS).replace("heart", "hard")],
-    [PROVERBS, `trust in the ${spoken(PROVERBS)}`],
+    [PROVERBS, misspeak(PROVERBS, { [swapped]: instead })],
+    [PROVERBS, `${heard(PROVERBS).slice(0, 3).join(" ")} ${spoken(PROVERBS)}`],
     [PSALM23, `um ${spoken(PSALM23)}`],
-    [of("Isaiah 40:28-31"), spoken(of("Isaiah 40:28-31")).replace("eaglesthey", "eagles they")],
   ];
+  if (fusedWord)
+    cases.push([fusedWord.passage, misspeak(fusedWord.passage, { [norm(fusedWord.word)]: fusedWord.said })]);
   for (const [passage, transcript] of cases) {
     const graded = scoreRecital(passage, transcript);
     const total = Object.values(graded.counts).reduce((a, b) => a + b, 0);
@@ -498,7 +819,9 @@ test("the counts are one tally per operation, so they sum to the operation list"
 });
 
 test("the diff is drop-in compatible with gradeWritten().diff", () => {
-  const graded = scoreRecital(PROVERBS, spoken(PROVERBS).replace("heart", "hard"));
+  const [instead] = foreignTo(PROVERBS, 1);
+  const [, swapped] = uniqueWords(PROVERBS).findLast(([, w]) => w.length >= MIN_FUZZY_LEN);
+  const graded = scoreRecital(PROVERBS, misspeak(PROVERBS, { [swapped]: instead }));
   const written = gradeWritten(PROVERBS.text.split(" "), spoken(PROVERBS));
   assert.deepEqual(
     graded.diff.map((d) => d.word),
@@ -513,8 +836,10 @@ test("the diff is drop-in compatible with gradeWritten().diff", () => {
 });
 
 test("credited words advance monotonically through the transcript", () => {
-  const heard = `trust in the ${spoken(PROVERBS).replace("heart", "hard")} amen`;
-  const graded = scoreRecital(PROVERBS, heard);
+  const [instead, trailing] = foreignTo(PROVERBS, 2);
+  const [, swapped] = uniqueWords(PROVERBS).findLast(([, w]) => w.length >= MIN_FUZZY_LEN);
+  const opening = heard(PROVERBS).slice(0, 3).join(" ");
+  const graded = scoreRecital(PROVERBS, `${opening} ${misspeak(PROVERBS, { [swapped]: instead })} ${trailing}`);
   let last = -1;
   for (const op of graded.ops) {
     if (op.hi < 0) continue;

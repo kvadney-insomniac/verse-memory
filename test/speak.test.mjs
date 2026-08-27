@@ -132,9 +132,14 @@ test("the bands are the four the session speaks", () => {
 });
 
 test("a member still short of the passage is given longer to think", () => {
+  /* The stalled transcript is the passage's own opening words rather than a
+   * quoted phrase, because the shipped translation is pluggable and what the
+   * verse opens with is its business — the rule under test is about how much of
+   * the passage has been covered, not about any wording. */
   const p = passages.find((x) => /Proverbs 3:5/.test(x.ref));
+  const opening = p.text.split(" ").slice(0, 3).join(" ");
   assert.equal(silenceMsFor(p, p.text), SILENCE_DONE_MS, "a finished recital is not waited on");
-  assert.equal(silenceMsFor(p, "trust in the"), SILENCE_THINKING_MS, "a stalled one is");
+  assert.equal(silenceMsFor(p, opening), SILENCE_THINKING_MS, "a stalled one is");
 });
 
 test("the prompter feeds the next words, from where the member dried up", () => {
