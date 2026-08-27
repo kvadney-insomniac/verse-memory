@@ -1,0 +1,77 @@
+# Deploy this fork to GitHub Pages, for free and with no credentials.
+#
+# The upstream project deploys to Cloudflare Workers and Firebase Hosting, both
+# of which need account secrets this fork does not have (see deploy.yml, which
+# is why it is disabled below). GitHub Pages needs nothing but the repository:
+# the app is a static tree of relative paths, so it serves from a project
+# subpath as happily as from a root.
+#
+# The one real difference is that this build is deliberately LOCAL-ONLY.
+# `src/config.js` carries the upstream project's Firebase config, and Firebase
+# refuses an origin that is not on its authorized-domains list — which a fork's
+# github.io address is never going to be. Rather than ship a site whose sign-in
+# button cannot work, the workflow writes a config that turns cloud sync off
+# outright, and `ALLOW_LOCAL_ONLY_BUILD=1` is the build's own escape hatch for
+# saying that on purpose (scripts/build.mjs refuses it by accident).
+#
+# What that means for anyone using the deployed site: progress lives in that
+# browser's localStorage and nowhere else. It does not sync between devices and
+# it never reaches the church's leaderboard. To change that, point
+# `__FIREBASE_CONFIG__` at a Firebase project of your own and drop the
+# ALLOW_LOCAL_ONLY_BUILD line.
+name: Pages
+
+on:
+  push:
+    branches: [deploy]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a queued run supersedes an older one rather than racing.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+
+      # The same gates the upstream CI runs, so a broken tree cannot go live.
+      - run: npm run lint
+      - run: npm test
+
+      - name: Write the local-only runtime config
+        run: |
+          cat > config.js <<'EOF'
+          window.__APP_CONFIG__ = {};
+          window.__FIREBASE_CONFIG__ = null;
+          EOF
+
+      - name: Build
+        run: ALLOW_LOCAL_ONLY_BUILD=1 npm run build
+
+      # Pages serves what it is given; a 404 on a deep link is not a concern
+      # here because the app is a single page that routes in memory.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -7,9 +7,13 @@ name: Deploy
 # build falls back to config.example.js, same as a machine with no local
 # override (see scripts/build.mjs).
 
+# Disabled on this fork: it deploys to the upstream project's Cloudflare and
+# Firebase accounts, whose secrets a fork does not have, so on every push it
+# would fail loudly and mean nothing. This fork deploys through pages.yml
+# instead. Left runnable by hand so it is obvious what it still is, rather than
+# deleted and quietly lost on the next merge from upstream.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
