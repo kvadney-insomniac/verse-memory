@@ -35,8 +35,17 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+
+# This branch lives in two repositories — the fork it was developed in, and the
+# public edition it was made for — and only one of them should ever publish it.
+# The fork's Pages site is somebody's private ESV instance; a KJV build landing
+# there would quietly replace the very text they are memorizing. The repository
+# check below is what makes that impossible rather than merely unlikely, and it
+# is deliberately a condition on the job rather than a branch filter, because a
+# branch filter would still have run here.
 jobs:
   build:
+    if: github.repository == 'kvadney-insomniac/verse-mastery'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +79,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.repository == 'kvadney-insomniac/verse-mastery'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
