@@ -49,6 +49,20 @@ export default [
     },
   },
   {
+    // packages/recital-score — the publishable extraction of the recital
+    // scorer. Its src/ is byte-identical to ours (test/package-sync.test.mjs
+    // holds that), but it is deliberately environment-free: it must run in a
+    // browser, in node, and in whatever a stranger installs it into, so it
+    // touches no global beyond the language's own.
+    files: ["packages/*/index.js", "packages/*/src/**/*.js"],
+    languageOptions: { ecmaVersion: 2022, sourceType: "module", globals: {} },
+  },
+  {
+    // Its suite is node:test like ours, run by `npm test --prefix`.
+    files: ["packages/*/test/**/*.mjs"],
+    languageOptions: { ecmaVersion: 2022, sourceType: "module", globals: { ...globals.node } },
+  },
+  {
     // The one piece of server code: the Cloudflare Worker behind /api/*. It is
     // an ES module against the Workers runtime, whose globals are the service
     // worker set (fetch, Response, FormData, btoa) rather than the DOM's.

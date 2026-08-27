@@ -1,0 +1,44 @@
+{
+  "name": "recital-score",
+  "version": "0.1.0",
+  "description": "Score a spoken recitation against text you already know, by sequence alignment with asymmetric gap costs — so false starts, repetitions, self-corrections and recognizer noise are free, and a genuinely forgotten clause is not.",
+  "keywords": [
+    "speech",
+    "recitation",
+    "scoring",
+    "alignment",
+    "needleman-wunsch",
+    "asr",
+    "transcript",
+    "word-accuracy",
+    "phonetic",
+    "double-metaphone",
+    "memorization",
+    "language-learning"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "main": "./index.js",
+  "files": [
+    "index.js",
+    "src"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kvadney-insomniac/verse-mastery.git",
+    "directory": "packages/recital-score"
+  },
+  "homepage": "https://github.com/kvadney-insomniac/verse-mastery",
+  "bugs": {
+    "url": "https://github.com/kvadney-insomniac/verse-mastery/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
