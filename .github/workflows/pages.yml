@@ -35,7 +35,6 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
-
 # This branch lives in two repositories — the fork it was developed in, and the
 # public edition it was made for — and only one of them should ever publish it.
 # The fork's Pages site is somebody's private ESV instance; a KJV build landing
