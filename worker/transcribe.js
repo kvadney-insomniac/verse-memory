@@ -4,7 +4,7 @@
  * app is React and htm off a CDN with no bundler, and the one thing a browser
  * genuinely cannot do for itself is hold an API key. So `run_worker_first`
  * hands `/api/*` to this script and lets `env.ASSETS` serve the rest untouched,
- * which is both the cheapest routing and the smallest surface — a request that
+ * which is both the cheapest routing and the smallest surface, a request that
  * is not `/api/transcribe` never reaches a line of provider code.
  *
  * ── THE RULE THAT IS NOT A STYLE PREFERENCE ─────────────────────────────────
@@ -12,24 +12,24 @@
  * **The expected verse is never sent to the transcriber. Not ever, not in any
  * field, not "just for the proper nouns of this passage".**
  *
- * Every biasing mechanism a speech API offers — Whisper's `initial_prompt` and
- * `prefix`, Chrome's `phrases`, Deepgram's keyterms — makes the engine more
+ * Every biasing mechanism a speech API offers, Whisper's `initial_prompt` and
+ * `prefix`, Chrome's `phrases`, Deepgram's keyterms, makes the engine more
  * likely to return the text you gave it *whether or not the member actually
  * said it*. `prefix` is the extreme case: it literally forces the decoder to
  * begin with your text. For a dictation product that is free accuracy. For a
  * product that puts a score on a recitation it is a validity bug that eats the
- * whole feature — the app would be grading the member on its own expectations,
+ * whole feature, the app would be grading the member on its own expectations,
  * and a member who skipped verse 3 would be told they said it.
  * (docs/research/asr.md, "the one thing that matters most";
  * docs/research/audio-tools-2026.md, trap #1.)
  *
  * So: this route accepts **audio and nothing else**. There is no request field
- * a client can put text into, which is deliberate — a rule enforced by the
+ * a client can put text into, which is deliberate, a rule enforced by the
  * absence of a parameter cannot be forgotten by a caller in a hurry. The one
  * prompt that exists is `TRANSCRIBE_VOCAB`, a **server-side** environment
- * variable holding a fixed list of *words* — proper nouns and archaic forms the
+ * variable holding a fixed list of *words*, proper nouns and archaic forms the
  * corpus is full of and Whisper is not (`Melchizedek`, `Zerubbabel`, `thy`,
- * `steadfast`) — with no ordering and no verse in it. That is biasing toward
+ * `steadfast`), with no ordering and no verse in it. That is biasing toward
  * the vocabulary rather than toward the word sequence, which fixes "the engine
  * cannot spell Habakkuk" without touching "did they say the whole psalm". If
  * you are ever tempted to pass a passage through it, the answer is no; keep two
@@ -57,7 +57,7 @@
  * somebody else's. */
 
 /* One megabyte, matching MAX_UPLOAD_BYTES in src/transcriber.js. At the bitrate
- * the client records, that is minutes of speech — a body that reaches it is not
+ * the client records, that is minutes of speech, a body that reaches it is not
  * a long recitation, it is somebody else. */
 const MAX_BODY_BYTES = 1000000;
 
@@ -99,14 +99,14 @@ const ok = (text) =>
  * environment and not from the request. */
 const PROVIDERS = {
   /* Cloudflare Workers AI. Slightly cheaper than Groq (~$0.031 vs $0.04 per
-   * audio hour) and — the reason it is the default — **there is no secret at
+   * audio hour) and, the reason it is the default, **there is no secret at
    * all**. The model is a binding, so there is no key in this repo, no key in a
    * Worker secret, no key to leak from a public endpoint and no provider
    * account for a scanner to run up a bill on. For a church tool run by one
    * person that is worth more than a few hundred milliseconds of latency. The
    * practitioner testimony for Groq is genuinely better (audio-tools-2026.md
    * §2) and the two are a near-tie on price, so measure and swap if the latency
-   * disappoints — that is what TRANSCRIBE_PROVIDER is for. */
+   * disappoints, that is what TRANSCRIBE_PROVIDER is for. */
   async workersai(env, bytes, mime, vocab) {
     /* ⚠️ Unverified without a deploy: the turbo model's documented input is a
      * **base64 string**, where the older `@cf/openai/whisper` takes an array of
@@ -115,7 +115,7 @@ const PROVIDERS = {
      * on a megabyte overflows the call stack. */
     const audio = base64(bytes);
     const input = { audio };
-    if (vocab) input.prompt = vocab; // vocabulary only — see the head of this file
+    if (vocab) input.prompt = vocab; // vocabulary only, see the head of this file
     const out = await env.AI.run(WORKERS_AI_MODEL, input);
     return textOf(out);
   },
@@ -123,14 +123,14 @@ const PROVIDERS = {
   /* Groq's hosted whisper-large-v3-turbo: $0.04 per audio hour, 216× realtime,
    * and a free tier of 28,800 audio-seconds a day, which at forty seconds a
    * recitation is some seven hundred a day. Needs GROQ_API_KEY as a Worker
-   * secret — `wrangler secret put GROQ_API_KEY` — and that key is the whole
+   * secret, `wrangler secret put GROQ_API_KEY`, and that key is the whole
    * reason this is not the default. */
   async groq(env, bytes, mime, vocab) {
     const form = new FormData();
     form.append("file", new Blob([bytes], { type: mime }), "recitation" + extensionFor(mime));
     form.append("model", GROQ_MODEL);
     form.append("response_format", "json");
-    if (vocab) form.append("prompt", vocab); // vocabulary only — see the head of this file
+    if (vocab) form.append("prompt", vocab); // vocabulary only, see the head of this file
     const res = await fetch(GROQ_URL, {
       method: "POST",
       headers: { Authorization: "Bearer " + env.GROQ_API_KEY },
@@ -181,15 +181,15 @@ function base64(bytes) {
 /* ------------------------------------------------------------------- route */
 
 async function transcribe(request, env) {
-  /* Only a POST, and only of audio. Both refusals are here so that a probe —
-   * and this endpoint will be probed, because it exists — costs a string
+  /* Only a POST, and only of audio. Both refusals are here so that a probe,
+   * and this endpoint will be probed, because it exists, costs a string
    * comparison rather than a provider call. */
   if (request.method !== "POST") return fail(405, "method");
 
   const mime = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
   if (!mime.startsWith("audio/")) return fail(415, "content-type");
 
-  /* Content-Length first, because refusing before reading is the cheap half —
+  /* Content-Length first, because refusing before reading is the cheap half,
    * but never only Content-Length, because a client is free to lie about it or
    * omit it entirely with a chunked body. The bytes are counted below. */
   const declared = Number(request.headers.get("Content-Length") || 0);
@@ -208,7 +208,7 @@ async function transcribe(request, env) {
   if (!provider) return fail(503, "not-configured");
 
   /* Vocabulary from the environment, never from the request. Trimmed to
-   * Whisper's 224-token ceiling by character count, generously — this is a word
+   * Whisper's 224-token ceiling by character count, generously, this is a word
    * list, not prose. */
   const vocab = String((env && env.TRANSCRIBE_VOCAB) || "").slice(0, 800);
 

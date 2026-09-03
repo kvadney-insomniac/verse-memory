@@ -1,24 +1,24 @@
 /* Member profile.
  *
- * Each signed-in member fills in a small profile — ministry group, gender, and
- * graduating class — that is stored alongside their progress (see storage.js /
+ * Each signed-in member fills in a small profile, ministry group, gender, and
+ * graduating class, that is stored alongside their progress (see storage.js /
  * firebase.js) and used to slice the leaderboard stats. This module holds the
  * option lists and the pure helpers; all functions are pure so they can be unit
  * tested in Node without a browser. */
 
 import { appConfig } from "./config.js";
 
-/* The ministry groups this deployment knows about — the authoritative option
+/* The ministry groups this deployment knows about, the authoritative option
  * list for the profile's autocomplete picklist. Every group is somebody's own
  * list of congregations, campuses or small groups, so it comes from
- * `appConfig.ministryGroups` (see src/config.js, which carries this deployment's
- * as its default) rather than being written out here. Keep whatever list is
- * configured in canonical/ministry order, with an "Other" catch-all pinned last
- * (not alphabetized) for members whose group isn't listed.
+ * `appConfig.ministryGroups` (see src/config.js, whose default is a generic set
+ * that fits any congregation) rather than being written out here. Keep whatever
+ * list is configured in canonical/ministry order, with an "Other" catch-all
+ * pinned last (not alphabetized) for members whose group isn't listed.
  *
  * A group name is stored in the member's profile verbatim and read back by the
  * leaderboard's grouping, so renaming one leaves the members who chose the old
- * name filed under it — the same reason a category key never moves. Anything
+ * name filed under it, the same reason a category key never moves. Anything
  * that is not a non-empty string is dropped rather than offered as a blank row,
  * and a list configured as nothing at all leaves the picker with no suggestions,
  * which the form already handles: the field is free text with a picklist beside
@@ -32,14 +32,14 @@ export const GENDERS = ["Male", "Female"];
 /* The review settings a member can tune on their profile: how many verses a
  * review session takes, and how far a committed verse may fade before it comes
  * back round. The threshold sits well above the point where a verse is properly
- * at risk — a passage is easiest to hold when it is topped up before it slips,
+ * at risk, a passage is easiest to hold when it is topped up before it slips,
  * and reviewing at 75% costs a fraction of what relearning at 20% does. */
 export const DEFAULT_DUE_TOP_X = 10;
 export const DEFAULT_DUE_FRESHNESS = 75;
 
 /* How many of the words a write-out has to get right to commit a verse (see
  * srs.commitsVerse). 95% by default, matching srs.COMMIT_SCORE, so one dropped
- * article does not deny a passage the member plainly knows — a member who
+ * article does not deny a passage the member plainly knows, a member who
  * wants a stricter or more forgiving bar can move it, down to MIN_COMMIT_THRESHOLD
  * so the bar still means recalling the passage rather than approximating it. */
 export const DEFAULT_COMMIT_THRESHOLD = 95;
@@ -85,14 +85,14 @@ export function isProfileComplete(p) {
 }
 
 /* Is there anything here at all? `{}` is what an unsigned device and a document
- * with no profile field both look like, and it is truthy — which is exactly how
+ * with no profile field both look like, and it is truthy, which is exactly how
  * an empty object used to win a merge against a real profile. */
 const hasProfile = (p) => !!p && Object.keys(p).length > 0;
 
 /* Reconcile a local and a remote profile, in three steps, each of which exists
  * to stop a real profile being lost to a lesser one:
  *
- *   1. If only one side has anything, that side — an empty object is not a
+ *   1. If only one side has anything, that side, an empty object is not a
  *      profile that beat the other, it is the absence of one. (`{}` vs a real
  *      profile carrying no `updatedAt` used to tie at 0 and hand back the
  *      empty side, which reads to the member as "set up your profile" on a

@@ -18,7 +18,7 @@ import { copy } from "../src/copy.js";
 import { passages } from "../data/passages.js";
 
 const SHORT = { id: 1, ref: "John 11:35", text: "Jesus wept." };
-/* `verses` is an array of strings — that is what data/passages.js ships and what
+/* `verses` is an array of strings, that is what data/passages.js ships and what
  * test/passages.test.mjs asserts. The fixture used to invent `[{ v, text }]`,
  * which is why verse mode threw on every real passage without a test noticing;
  * both shapes are kept here so neither can rot again. */
@@ -33,7 +33,7 @@ test("passage mode: a perfect lowercase transcript scores full marks", () => {
   const r = feedbackFor(SHORT, "jesus wept", "passage");
   assert.equal(r.score, 1);
   assert.equal(r.pct, 100);
-  /* The figure is no longer said out loud — the session answers a recital with
+  /* The figure is no longer said out loud, the session answers a recital with
    * one of four band lines and, on three of them, the verse itself (see BANDS).
    * What feedbackFor composes is only the detail a mode adds on top, and whole
    * passage mode adds none. */
@@ -55,7 +55,7 @@ test("passage mode: an empty recital says so instead of quoting zero", () => {
 
 test("word mode: the missed words are graded per word and read out", () => {
   /* Long enough to be gradeable: one word out of a two-word verse is not a
-   * recital the app should claim to have marked, so SHORT abstains here — see
+   * recital the app should claim to have marked, so SHORT abstains here, see
    * the abstention rule in recital.js. */
   const verse = { id: 3, ref: "Psalm 46:10", text: "Be still, and know that I am God." };
   const r = feedbackFor(verse, "be still and know that I am", "word");
@@ -80,7 +80,7 @@ test("verse mode: a verses-bearing passage is graded verse by verse", () => {
 test("verse mode: a passage without verses falls back to the whole-passage sentence", () => {
   const r = feedbackFor(SHORT, "jesus wept", "verse");
   assert.equal(r.perVerse, undefined);
-  // Nothing to add per verse, so nothing is said per verse — the band line and
+  // Nothing to add per verse, so nothing is said per verse, the band line and
   // the passage itself are the whole answer.
   assert.equal(r.spokenFeedback, "");
 });
@@ -134,7 +134,7 @@ test("the bands are the four the session speaks", () => {
 test("a member still short of the passage is given longer to think", () => {
   /* The stalled transcript is the passage's own opening words rather than a
    * quoted phrase, because the shipped translation is pluggable and what the
-   * verse opens with is its business — the rule under test is about how much of
+   * verse opens with is its business, the rule under test is about how much of
    * the passage has been covered, not about any wording. */
   const p = passages.find((x) => /Proverbs 3:5/.test(x.ref));
   const opening = p.text.split(" ").slice(0, 3).join(" ");
@@ -167,7 +167,7 @@ test("no command word is a word of scripture on its own", () => {
     if (words.length <= 2) assert.equal(commandIn(p.text), null, `${p.ref} would be heard as a command`);
   }
   assert.ok(COMMANDS.includes("hint"));
-  assert.ok(!COMMANDS.includes("help"), "help is in the Psalms — hint is the free word");
+  assert.ok(!COMMANDS.includes("help"), "help is in the Psalms, hint is the free word");
 });
 
 test("a word nobody was asked to say is never read back as missed", () => {

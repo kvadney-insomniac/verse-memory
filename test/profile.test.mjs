@@ -24,17 +24,9 @@ test("isProfileComplete requires name, ministry group, gender, and class", () =>
   );
 });
 
-test("cleanDisplayName strips a trailing (Berk) tag", () => {
-  assert.equal(cleanDisplayName("Ada Lovelace (Berk)"), "Ada Lovelace");
-  assert.equal(cleanDisplayName("Ada Lovelace  (berk)"), "Ada Lovelace", "case/space tolerant");
-  assert.equal(cleanDisplayName("Ada Lovelace"), "Ada Lovelace", "untouched when absent");
-  assert.equal(cleanDisplayName("Berk (Berk)"), "Berk", "only the trailing tag");
-  assert.equal(cleanDisplayName(null), "");
-  assert.equal(cleanDisplayName(""), "");
-});
-
 test("profile option lists are well-formed", () => {
-  assert.ok(MINISTRY_GROUPS.includes("Kairos") && MINISTRY_GROUPS.includes("ECM"));
+  assert.ok(MINISTRY_GROUPS.length > 1, "the picker has suggestions to offer");
+  assert.equal(MINISTRY_GROUPS.at(-1), "Other", "the catch-all stays pinned last");
   assert.equal(new Set(MINISTRY_GROUPS).size, MINISTRY_GROUPS.length, "no duplicate groups");
   assert.deepEqual(GENDERS, ["Male", "Female"]);
 });
@@ -68,7 +60,7 @@ test("mergeProfile keeps the most recently edited profile", () => {
  *
  * The rule these pin down is "a real profile is never lost to a lesser one".
  * An empty object is what both an unseeded device and a cloud document with no
- * profile field look like, and it is truthy — so it used to survive the merge
+ * profile field look like, and it is truthy, so it used to survive the merge
  * against a real profile that happened to tie on `updatedAt`, which reads to
  * the member as being asked to set up a profile they already have. */
 

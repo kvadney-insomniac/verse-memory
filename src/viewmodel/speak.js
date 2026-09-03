@@ -1,7 +1,7 @@
 /* Speak mode: state + actions → what the speak screen shows.
  *
- * The screen is glanced at, not worked — the session runs itself once started
- * — so everything here is a label or a single callback. Practice only: no key
+ * The screen is glanced at, not worked, the session runs itself once started
+ *, so everything here is a label or a single callback. Practice only: no key
  * in here reaches progress or the ladder. */
 
 import { copy } from "../copy.js";
@@ -63,11 +63,11 @@ export function speakVals({ state, actions, now = Date.now() }) {
     })),
     speakQueueLabel: copy.speak.queueCount(d.running ? d.queue.length : pool.length),
     speakEmpty: !d.running && pool.length === 0 ? copy.speak.empty : "",
-    /* Why a session ended by itself — a refused microphone otherwise looks
+    /* Why a session ended by itself, a refused microphone otherwise looks
      * exactly like the member pressing Stop. */
     speakError: !d.running && d.error ? d.error : "",
     /* The figure survives on the screen even though it is no longer said out
-     * loud — a member who is looking can act on it, and one who is driving
+     * loud, a member who is looking can act on it, and one who is driving
      * cannot, which is the whole distinction the bands were drawn along. A
      * recital the app could not make sense of shows no figure at all rather
      * than a very confident nought. */
