@@ -66,10 +66,18 @@ const MAX_BODY_BYTES = 1000000;
 const UPSTREAM_TIMEOUT_MS = 25000;
 
 const ROUTE = "/api/transcribe";
-
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const WORKERS_AI_MODEL = "@cf/openai/whisper-large-v3-turbo";
+const ASSEMBLYAI_UPLOAD_URL = "https://api.assemblyai.com/v2/upload";
+const ASSEMBLYAI_TRANSCRIPT_URL = "https://api.assemblyai.com/v2/transcript";
+/* Ordered fallback, first available wins. The flagship handles 18 languages
+ * with native code-switching and falls back to Universal-2 for the rest. */
+const ASSEMBLYAI_MODELS = ["universal-3-5-pro", "universal-2"];
+/* How long to wait between polls. Short enough that a forty-second recitation
+ * is not sitting in a finished state waiting to be asked, long enough that a
+ * queued one does not spend the request budget on round trips. */
+const ASSEMBLYAI_POLL_MS = 700;
 
 /* A refusal says what was wrong and nothing else.
  *
@@ -139,6 +147,91 @@ const PROVIDERS = {
     if (!res.ok) throw new Error("upstream " + res.status);
     return textOf(await res.json());
   },
+
+  /* AssemblyAI's pre-recorded API. Three calls where the other two take one,
+   * and the audio is the reason. Their single-request sync endpoint accepts WAV
+   * or raw PCM only, and this client records Opus at 16 kbps precisely so that
+   * a recitation on cellular costs tens of kilobytes instead of megabytes
+   * (src/transcriber.js, AUDIO_BITS_PER_SECOND). Transcoding to WAV to save a
+   * round trip would multiply the upload by an order of magnitude to save a few
+   * hundred milliseconds, which is the wrong trade for a phone in a car. So the
+   * bytes go up as they were recorded, and the wait is paid at the other end,
+   * inside the gap Speak mode already leaves after every recital.
+   *
+   * Needs ASSEMBLYAI_API_KEY as a Worker secret, `wrangler secret put
+   * ASSEMBLYAI_API_KEY`. Their header is a bare `authorization` whose whole
+   * value is the key: sending "Bearer <key>" is a 401 that reads exactly like a
+   * bad key, which is an afternoon nobody needs twice.
+   *
+   * `keyterms_prompt` is the only field here that carries text, and it carries
+   * `vocab`, the server-side word list, unordered, no verse in it, which is
+   * the vocabulary biasing the head of this file permits rather than the
+   * sequence biasing it forbids. These are spellings the engine lacks
+   * (Melchizedek, Zerubbabel), not words we want it to hear when they were not
+   * said, and a scoring app pays for over-boosting in credit a member did not
+   * earn. See the body below for why `prompt` is left unset. */
+  async assemblyai(env, bytes, mime, vocab) {
+    /* Three calls: upload the bytes, create the job, poll it. The sync
+     * endpoint would be one call and is the wrong one here, it takes WAV or
+     * PCM and the client records Opus (see MAX_BODY_BYTES), so using it would
+     * mean transcoding audio in a Worker to save a round trip. */
+    const key = env.ASSEMBLYAI_API_KEY;
+
+    const up = await fetch(ASSEMBLYAI_UPLOAD_URL, {
+      method: "POST",
+      headers: { authorization: key, "content-type": "application/octet-stream" },
+      body: bytes,
+    });
+    if (!up.ok) throw new Error("upload " + up.status);
+    const uploaded = await up.json();
+    if (!uploaded || !uploaded.upload_url) throw new Error("upstream no-upload-url");
+
+    /* `speech_models` is an ordered fallback list rather than parallel
+     * execution: the first available model wins and produces the transcript.
+     * It is optional, and that is exactly why it is set here, omitted, the API
+     * applies its own older default, so the current flagship has to be asked
+     * for by name. Universal-2 sits behind it as the broadly available model.
+     *
+     * `keyterms_prompt` is the vocabulary bias and replaces the older
+     * `word_boost` / `boost_param` pair. The distinction the head of this file
+     * draws survives the rename intact and is worth restating against the
+     * newer API, because the newer API makes breaking it easier: there is now
+     * also a `prompt` field taking free natural-language guidance about the
+     * audio, and **this route deliberately never sets it**. A word list biases
+     * toward the vocabulary; a prompt carrying the expected verse would bias
+     * toward the sequence, and an engine leaned on to hear what the app
+     * expects is an engine grading the member on the app's expectations rather
+     * than on what they said. In a scoring app that is a validity bug, not a
+     * tuning one. Vocabulary yes, sequence never. */
+    const body = {
+      audio_url: uploaded.upload_url,
+      language_code: "en",
+      speech_models: ASSEMBLYAI_MODELS,
+    };
+    const terms = wordsOf(vocab);
+    if (terms.length) body.keyterms_prompt = terms;
+    const created = await fetch(ASSEMBLYAI_TRANSCRIPT_URL, {
+      method: "POST",
+      headers: { authorization: key, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!created.ok) throw new Error("create " + created.status);
+    const job = await created.json();
+    if (!job || !job.id) throw new Error("upstream no-id");
+
+    /* Poll until it settles, with no deadline of its own. The caller already
+     * races every provider against UPSTREAM_TIMEOUT_MS, so a queue that never
+     * drains ends the same way a hung single-shot request does; a second clock
+     * here would only give the two somewhere to disagree. */
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, ASSEMBLYAI_POLL_MS));
+      const res = await fetch(ASSEMBLYAI_TRANSCRIPT_URL + "/" + job.id, { headers: { authorization: key } });
+      if (!res.ok) throw new Error("poll " + res.status);
+      const out = await res.json();
+      if (out && out.status === "completed") return textOf(out);
+      if (!out || out.status === "error") throw new Error("upstream transcript-error");
+    }
+  },
 };
 
 /* Which provider this deploy uses. `TRANSCRIBE_PROVIDER` decides where it is
@@ -149,10 +242,22 @@ export function providerFor(env) {
   if (named && PROVIDERS[named]) return named;
   if (env && env.AI) return "workersai";
   if (env && env.GROQ_API_KEY) return "groq";
+  if (env && env.ASSEMBLYAI_API_KEY) return "assemblyai";
   return "";
 }
 
-/* Whisper's own envelope, from either provider. */
+/* `vocab` as AssemblyAI wants it. Same words and the same environment
+ * variable the other two providers read; only the envelope differs, a list
+ * where Whisper takes a string. Split on whitespace and commas so a vocab
+ * written either way behaves the same. */
+export const wordsOf = (vocab) =>
+  String(vocab || "")
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .slice(0, 1000);
+
+/* Whisper's own envelope, from any provider; AssemblyAI's completed transcript
+ * puts `text` in the same place. */
 const textOf = (out) => {
   if (!out) return "";
   if (typeof out.text === "string") return out.text.trim();
@@ -219,10 +324,18 @@ async function transcribe(request, env) {
   try {
     const text = await Promise.race([PROVIDERS[provider](env, bytes, mime, vocab), timeout]);
     return ok(text || "");
-  } catch {
-    /* Deliberately not the upstream message. The client treats any failure as
-     * an empty recital, which Speak mode already answers by reading the verse
-     * out together, so there is nothing here worth leaking to say. */
+  } catch (err) {
+    /* Deliberately not the upstream message in the *response*. The client
+     * treats any failure as an empty recital, which Speak mode already answers
+     * by reading the verse out together, so there is nothing there worth
+     * leaking to say.
+     *
+     * The log is the other half of that, and the route was missing it: an
+     * opaque 502 with nothing behind it is a route nobody can operate. Every
+     * message a provider throws here is one this file wrote (`upstream 401`,
+     * `upstream no-id`, `timeout`), never an upstream body, so the two rules
+     * do not collide. */
+    console.error("transcribe " + provider + ": " + ((err && err.message) || "unknown"));
     return fail(502, "upstream");
   }
 }

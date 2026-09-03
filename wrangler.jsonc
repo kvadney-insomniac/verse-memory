@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "verse-memory",
+  "name": "verse-mastery",
   "compatibility_date": "2026-08-14",
   // Almost a static-assets-only Worker, and deliberately still shaped like one.
   // `npm run build` assembles ./dist from index.html, src/, data/, config.js,
@@ -26,8 +26,10 @@
   // Speech-to-text with no secret anywhere: the model is a binding rather than
   // a key, so there is nothing in this repo, and nothing in a Worker secret,
   // for a scanner to find at a public endpoint. That is why it is the default
-  // provider. The alternative is Groq, set TRANSCRIBE_PROVIDER=groq and
-  // `wrangler secret put GROQ_API_KEY`, and the route supports both.
+  // provider. The alternatives both need a key and are selected the same way:
+  // TRANSCRIBE_PROVIDER=groq with `wrangler secret put GROQ_API_KEY`, or
+  // TRANSCRIBE_PROVIDER=assemblyai with `wrangler secret put
+  // ASSEMBLYAI_API_KEY`. The route supports all three.
   "ai": {
     "binding": "AI",
   },
