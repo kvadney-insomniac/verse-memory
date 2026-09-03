@@ -15,7 +15,10 @@ import {
   SILENCE_THINKING_MS,
 } from "../src/speak.js";
 import { copy } from "../src/copy.js";
+import { effectiveSource, speakPool } from "../src/viewmodel/speak.js";
 import { passages } from "../data/passages.js";
+
+const NOW = Date.parse("2026-09-02T12:00:00Z");
 
 const SHORT = { id: 1, ref: "John 11:35", text: "Jesus wept." };
 /* `verses` is an array of strings, that is what data/passages.js ships and what
@@ -183,4 +186,27 @@ test("a word nobody was asked to say is never read back as missed", () => {
     assert.deepEqual(r.missed, [], `${ref} names nothing missed`);
     assert.doesNotMatch(r.spokenFeedback, /missed/i, `${ref} says nothing about misses`);
   }
+});
+
+/* ── which queue a member is put in front of ────────────────────────────────
+ *
+ * The due queue is committed verses that have faded, so it is empty for
+ * somebody who has committed nothing, and Speak mode is the one screen where
+ * an empty queue costs the most: it is the whole feature, and the visitor has
+ * no way to fill the queue without leaving it. See effectiveSource. */
+
+test("a member with nothing committed is put on the whole set, not an empty queue", () => {
+  const source = effectiveSource("due", passages, {});
+  assert.equal(source, "all");
+  assert.equal(speakPool(source, passages, {}, {}, NOW).length, passages.length, "and it has passages in it");
+});
+
+test("a member who is merely caught up still sees the empty due queue", () => {
+  const progress = { [passages[0].id]: { status: "memorized", hits: 1, last: NOW, step: 6, stability: 7 } };
+  assert.equal(effectiveSource("due", passages, progress), "due", "one committed verse hands the choice back");
+});
+
+test("a source the member picked is never second-guessed", () => {
+  assert.equal(effectiveSource("committed", passages, {}), "committed");
+  assert.equal(effectiveSource("all", passages, {}), "all");
 });

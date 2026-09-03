@@ -41,6 +41,14 @@ export default defineConfig({
 
   use: {
     baseURL,
+    // The suite drives an app that talks. Speak mode reads scripture aloud and
+    // Run mode plays a beat under it, both on a loop that wraps until Stop, so
+    // a spec that wanders into either one turns whichever machine is running
+    // the tests into a speaker nobody asked to switch on, with no obvious way
+    // to tell which process is doing it. --mute-audio is set at launch rather
+    // than left to each spec to remember, because the cost of forgetting is
+    // paid by whoever is in the room and not by the person who forgot.
+    launchOptions: { args: ["--mute-audio"] },
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "off",

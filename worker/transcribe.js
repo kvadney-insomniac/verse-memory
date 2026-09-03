@@ -66,6 +66,27 @@ const MAX_BODY_BYTES = 1000000;
 const UPSTREAM_TIMEOUT_MS = 25000;
 
 const ROUTE = "/api/transcribe";
+const SPEAK_ROUTE = "/api/speak";
+
+/* Cloudflare's own neural voice, reached through the same `AI` binding the
+ * default transcriber uses, so it costs no second key and nothing extra to
+ * configure. It exists because the browser's `speechSynthesis` is what this
+ * app used to talk with, and on most machines that is a decades-old formant
+ * voice reading scripture in a monotone. In a hands-free mode whose entire
+ * output is a voice, the voice is the product. */
+const SPEAK_MODEL = "@cf/deepgram/aura-2-en";
+
+/* Which of the model's voices reads. An environment variable rather than a
+ * request field for the same reason the transcriber's vocabulary is: a caller
+ * who can choose the model's parameters is a caller who can run up the bill in
+ * a shape the route did not intend. */
+const SPEAK_VOICE_DEFAULT = "asteria";
+
+/* A passage, not an essay. The longest passage the app ships is comfortably
+ * under this, and the client sends sentence-sized chunks besides, so a body
+ * that reaches the cap is not a verse. */
+const MAX_SPEAK_CHARS = 800;
+
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const WORKERS_AI_MODEL = "@cf/openai/whisper-large-v3-turbo";
@@ -340,10 +361,65 @@ async function transcribe(request, env) {
   }
 }
 
+/* --------------------------------------------------------------- the voice */
+
+/* Read a line aloud, in a voice that sounds like a person.
+ *
+ * ⚠️ Unverified without a deploy, in the same sense as the providers above:
+ * the model's input field names and its ReadableStream return are read off the
+ * model reference rather than off a response. If a deploy fails here, those
+ * two are the assumptions.
+ *
+ * The route is deliberately narrow. It takes text and returns audio, it has no
+ * field for choosing a voice or an encoding, and it caps what it will read.
+ * `speaker` and `encoding` are fixed here rather than accepted from the caller
+ * because every one of them is a lever on somebody else's bill, and the client
+ * has no reason to want a different answer than the app's own voice. */
+async function speak(request, env) {
+  if (request.method !== "POST") return fail(405, "method");
+  if (!env || !env.AI) return fail(503, "not-configured");
+
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > MAX_SPEAK_CHARS * 4) return fail(413, "too-large");
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return fail(400, "body");
+  }
+  const text = String((body && body.text) || "").trim();
+  if (!text) return fail(400, "empty");
+  if (text.length > MAX_SPEAK_CHARS) return fail(413, "too-large");
+
+  const voice = String((env && env.SPEAK_VOICE) || SPEAK_VOICE_DEFAULT);
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), UPSTREAM_TIMEOUT_MS));
+  try {
+    const audio = await Promise.race([env.AI.run(SPEAK_MODEL, { text, speaker: voice, encoding: "mp3" }), timeout]);
+    return new Response(audio, {
+      status: 200,
+      headers: {
+        "Content-Type": "audio/mpeg",
+        /* The same verse is read every time it comes round, and the text is
+         * the cache key by way of the URL the client builds. A day is long
+         * enough to make a session of repeats free and short enough that
+         * changing the voice is visible the next morning. */
+        "Cache-Control": "public, max-age=86400",
+      },
+    });
+  } catch {
+    /* The client falls back to the browser's own voice on any failure, so the
+     * status is all it needs; a hands-free session must never stop because a
+     * synthesizer was busy. */
+    return fail(502, "upstream");
+  }
+}
+
 export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (pathname === ROUTE) return transcribe(request, env);
+    if (pathname === SPEAK_ROUTE) return speak(request, env);
     /* `run_worker_first` in wrangler.jsonc means only `/api/*` arrives here at
      * all, so this is the fallthrough for an /api path that is not a route, and
      * the static site for anything that somehow is. */

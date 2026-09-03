@@ -280,18 +280,26 @@ export function speechMs(text) {
 }
 
 /* A token so a cancelled recitation cannot go on speaking its later chunks. */
+import { networkSpeechSupported, sayOverNetwork } from "./tts.js";
+
 let speechToken = 0;
+/* The stop function of the clip the app's own voice is playing, held for the
+ * same reason speaker.js holds one: stopping a run has to stop the voice, and
+ * a clip left playing over the next verse is the app talking over itself. */
+let stopClip = null;
 
 /* Say one line, in pieces if it is long, then call back. `onEnd` fires
  * exactly once, whatever the browser does: an utterance that errors, or that
  * simply never reports itself finished, still moves the loop along, because a
  * hands-free session has nobody to press anything when it stalls. */
 export function speak(text, handlers = {}) {
-  const { onStart, onEnd } = typeof handlers === "function" ? { onEnd: handlers } : handlers;
+  const { onStart, onEnd, endpoint = "" } = typeof handlers === "function" ? { onEnd: handlers } : handlers;
   const done = () => {
     if (onEnd) onEnd();
   };
-  if (!speechSupported()) return done();
+  /* Either voice will do. The app's own is preferred below; this only asks
+   * whether there is any way at all to say the line. */
+  if (!speechSupported() && !networkSpeechSupported(endpoint)) return done();
 
   const chunks = chunkForSpeech(text);
   if (!chunks.length) return done();
@@ -300,9 +308,41 @@ export function speak(text, handlers = {}) {
   const mine = speechToken;
   let started = false;
 
+  /* The duck. A beat at full height under a voice is the voice lost, and the
+   * run's whole point is hearing the verse over it. Taken once per line,
+   * whichever voice reads it. */
+  const duck = () => {
+    if (started || mine !== speechToken) return;
+    started = true;
+    if (onStart) onStart();
+  };
+
   const sayChunk = (i) => {
     if (mine !== speechToken) return;
     if (i >= chunks.length) return done();
+
+    /* The app's own voice first, the browser's if it could not be reached,
+     * per line rather than per run: see src/tts.js. */
+    if (networkSpeechSupported(endpoint)) {
+      stopClip = sayOverNetwork(window, endpoint, chunks[i], (spoken) => {
+        stopClip = null;
+        if (mine !== speechToken) return;
+        if (spoken) return sayChunk(i + 1);
+        sayWithBrowser(i);
+      });
+      /* The clip starts as soon as it lands, and there is no `onstart` to wait
+       * for, so the beat ducks on the request rather than on the first word.
+       * A quarter second of a quieter beat is not a fault; a beat at full
+       * height over the first clause is. */
+      duck();
+      return;
+    }
+    sayWithBrowser(i);
+  };
+
+  const sayWithBrowser = (i) => {
+    if (mine !== speechToken) return;
+    if (!speechSupported()) return sayChunk(i + 1);
 
     const u = new window.SpeechSynthesisUtterance(chunks[i]);
     u.rate = 0.95;
@@ -315,11 +355,7 @@ export function speak(text, handlers = {}) {
       if (mine !== speechToken) return;
       sayChunk(i + 1);
     };
-    u.onstart = () => {
-      if (started || mine !== speechToken) return;
-      started = true;
-      if (onStart) onStart();
-    };
+    u.onstart = duck;
     u.onend = next;
     u.onerror = next;
     window.speechSynthesis.speak(u);
@@ -339,5 +375,7 @@ export function speak(text, handlers = {}) {
 
 export function stopSpeaking() {
   speechToken += 1;
+  if (stopClip) stopClip();
+  stopClip = null;
   if (speechSupported()) window.speechSynthesis.cancel();
 }

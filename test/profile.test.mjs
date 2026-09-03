@@ -13,15 +13,33 @@ import {
   reviewSettings,
 } from "../src/profile.js";
 
-test("isProfileComplete requires name, ministry group, gender, and class", () => {
+test("isProfileComplete requires name and ministry group, and nothing else", () => {
   assert.equal(isProfileComplete(null), false);
   assert.equal(isProfileComplete({}), false);
   assert.equal(isProfileComplete({ ministryGroup: "Kairos", gender: "Male", gradClass: 2026 }), false, "name required");
-  assert.equal(isProfileComplete({ name: "Ada Lovelace", gender: "Male", gradClass: 2026 }), false);
+  assert.equal(isProfileComplete({ name: "Ada Lovelace", gender: "Male", gradClass: 2026 }), false, "group required");
+  assert.equal(isProfileComplete({ name: "Ada Lovelace", ministryGroup: "Kairos" }), true, "the two are enough");
   assert.equal(
     isProfileComplete({ name: "Ada Lovelace", ministryGroup: "Kairos", gender: "Male", gradClass: 2026 }),
     true,
   );
+});
+
+/* The wall this took down: a stranger had to declare a gender and name a
+ * graduating class before the app would show them a verse. */
+test("gender and graduating class are optional", () => {
+  assert.equal(isProfileComplete({ name: "Ada", ministryGroup: "Small group", gender: "", gradClass: "" }), true);
+  assert.equal(isProfileComplete({ name: "Ada", ministryGroup: "Small group", gradClass: 2026 }), true, "no gender");
+  assert.equal(isProfileComplete({ name: "Ada", ministryGroup: "Small group", gender: "Female" }), true, "no class");
+});
+
+test("cleanDisplayName strips a trailing (Berk) tag", () => {
+  assert.equal(cleanDisplayName("Ada Lovelace (Berk)"), "Ada Lovelace");
+  assert.equal(cleanDisplayName("Ada Lovelace  (berk)"), "Ada Lovelace", "case/space tolerant");
+  assert.equal(cleanDisplayName("Ada Lovelace"), "Ada Lovelace", "untouched when absent");
+  assert.equal(cleanDisplayName("Berk (Berk)"), "Berk", "only the trailing tag");
+  assert.equal(cleanDisplayName(null), "");
+  assert.equal(cleanDisplayName(""), "");
 });
 
 test("profile option lists are well-formed", () => {
@@ -74,7 +92,7 @@ test("an empty profile never displaces a real one, in either direction", () => {
 });
 
 test("a complete profile beats an incomplete one, however recently edited", () => {
-  const halfFilled = { name: "Half", ministryGroup: "Kairos", updatedAt: 9_000_000_000_000 };
+  const halfFilled = { name: "Half", updatedAt: 9_000_000_000_000 };
   assert.equal(mergeProfile(halfFilled, { ...REAL, updatedAt: 1 }).name, "Ada");
   assert.equal(mergeProfile({ ...REAL, updatedAt: 1 }, halfFilled).name, "Ada");
 });

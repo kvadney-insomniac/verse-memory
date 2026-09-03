@@ -20,6 +20,26 @@ export function speakPool(source, passages, progress, profile, now) {
   return passages;
 }
 
+/* Which source the screen actually offers, which is not always the one stored.
+ *
+ * The due queue is committed verses that have faded, so a member who has
+ * committed nothing has an empty one by definition. Landing a first-time
+ * visitor on "0 passages in the queue" is the worst thing this screen can say:
+ * there is nothing due, but there are a hundred and eighty-seven passages it
+ * could be reciting right now, and the one press that would show what Speak
+ * mode is is greyed out behind a queue they cannot fill without first going
+ * somewhere else. So a member with nothing committed starts on the whole set.
+ *
+ * The condition is "has committed nothing", deliberately, and not "the due
+ * queue is empty". A member who is caught up has an empty due queue too, and
+ * for them the empty queue is the true and useful answer: they are done, and
+ * quietly dealing them the whole set instead would be the screen lying about
+ * where they stand. Once one verse is committed the choice is theirs again. */
+export function effectiveSource(source, passages, progress) {
+  if (source !== "due") return source;
+  return passages.some((p) => isCommitted(progress[p.id])) ? "due" : "all";
+}
+
 export function speakVals({ state, actions, now = Date.now() }) {
   // Defensive default: fixtures and old saved state predate the speak slice.
   const d = state.speak || {
@@ -34,7 +54,8 @@ export function speakVals({ state, actions, now = Date.now() }) {
     heard: "",
   };
   const passage = d.queue.length ? state.passages.find((p) => p.id === d.queue[d.index % d.queue.length]) : null;
-  const pool = speakPool(d.source, state.passages, state.progress, state.profile, now);
+  const source = effectiveSource(d.source, state.passages, state.progress);
+  const pool = speakPool(source, state.passages, state.progress, state.profile, now);
   const last = d.lastResult;
   return {
     isSpeak: state.view === "speak",
@@ -58,7 +79,7 @@ export function speakVals({ state, actions, now = Date.now() }) {
     speakSources: SPEAK_SOURCES.map((key) => ({
       key,
       label: copy.speak.sources[key],
-      active: d.source === key,
+      active: source === key,
       onClick: () => actions.setSpeakSource(key),
     })),
     speakQueueLabel: copy.speak.queueCount(d.running ? d.queue.length : pool.length),

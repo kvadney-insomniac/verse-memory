@@ -23,7 +23,16 @@
  * `speechMs`, take plain values and are unit-tested without a window, the way
  * device.js and theme.js keep their rule apart from their seam. */
 
-export const speechSupported = () => typeof window !== "undefined" && !!window.speechSynthesis;
+/* Is there any voice at all, the app's own or the browser's?
+ *
+ * `endpoint` is `appConfig.speakUrl`. It is a parameter rather than an import
+ * because this module has never known about config, and because App.js already
+ * passes the transcriber its endpoint the same way. Called with nothing, this
+ * answers exactly what it always answered: whether the browser can speak. */
+import { networkSpeechSupported, sayOverNetwork } from "./tts.js";
+
+export const speechSupported = (endpoint) =>
+  (typeof window !== "undefined" && !!window.speechSynthesis) || networkSpeechSupported(endpoint);
 
 /* Ten per cent under the default. Scripture is syntactically strange, dense in
  * proper nouns, and, the point of the app, being memorised rather than
@@ -421,8 +430,11 @@ function voiceFor(win, lang) {
 /* ---------------------------------------------------------------- speaking */
 
 export function createSpeaker(options = {}) {
-  if (!speechSupported()) return null;
+  const endpoint = options.endpoint || "";
+  if (!speechSupported(endpoint)) return null;
   const win = window;
+  /* Undefined on a browser with no speech engine, which is now a browser this
+   * speaker can still work on, because the app's own voice does not need one. */
   const synth = win.speechSynthesis;
   const defaults = { rate: RATE, lang: SPEECH_LANG, gapMs: CHUNK_PAUSE_MS, maxChars: MAX_CHUNK_CHARS, ...options };
   warmVoices(win);
@@ -455,11 +467,19 @@ export function createSpeaker(options = {}) {
   /* Abandon whatever is in flight. Bumping the token first is the order that
    * matters, `synth.cancel()` fires the interrupted-utterance's `onerror`
    * synchronously on some browsers, so the guard has to already be true. */
+  /* The stop function of whatever the network voice is playing. It is held
+   * separately from `timers` because stopping a clip is not clearing a timer,
+   * and because leaving one playing over the next line is the one failure a
+   * member would describe as the app talking over itself. */
+  let stopClip = null;
+
   const abandon = () => {
     token += 1;
     for (const t of timers) win.clearTimeout(t);
     timers.clear();
     live.clear();
+    if (stopClip) stopClip();
+    stopClip = null;
   };
 
   return {
@@ -497,6 +517,35 @@ export function createSpeaker(options = {}) {
         if (mine !== token) return;
         if (i >= chunks.length) return done();
 
+        /* Where the chunk goes when it is finished, whichever voice read it. */
+        const after = () => {
+          if (mine !== token) return;
+          if (i + 1 >= chunks.length) return done();
+          arm(() => sayChunk(i + 1), cfg.gapMs);
+        };
+
+        /* The app's own voice first, the browser's only if it could not be
+         * reached. The fallback is per chunk rather than per session: one
+         * dropped request should not sentence the rest of a drive to the
+         * robot. */
+        if (networkSpeechSupported(endpoint, win)) {
+          stopClip = sayOverNetwork(win, endpoint, chunks[i], (spoken) => {
+            stopClip = null;
+            if (mine !== token) return;
+            if (spoken) return after();
+            sayWithBrowser(i, after);
+          });
+          return;
+        }
+        sayWithBrowser(i, after);
+      };
+
+      const sayWithBrowser = (i, after) => {
+        if (mine !== token) return;
+        /* No engine and no route: there is no way to say this line, and a
+         * caller waiting on a callback must still be released. */
+        if (!synth) return after();
+
         const u = new win.SpeechSynthesisUtterance(chunks[i]);
         const voice = voiceFor(win, cfg.lang);
         if (voice) u.voice = voice;
@@ -519,11 +568,10 @@ export function createSpeaker(options = {}) {
             timers.delete(watchdog);
           }
           if (mine !== token) return;
-          if (i + 1 >= chunks.length) return done();
-          /* The pause a lector leaves. It has to be a real timer because the
-           * gap the browser leaves between two utterances is zero, see
-           * CHUNK_PAUSE_MS. */
-          arm(() => sayChunk(i + 1), cfg.gapMs);
+          /* The pause a lector leaves is armed by `after`, which both voices
+           * share; the gap the browser leaves between two utterances is zero,
+           * see CHUNK_PAUSE_MS. */
+          after();
         };
         u.onend = next;
         u.onerror = next;
@@ -539,7 +587,7 @@ export function createSpeaker(options = {}) {
     cancel() {
       abandon();
       try {
-        synth.cancel();
+        if (synth) synth.cancel();
       } catch {
         /* a browser with no voice engine behind the API */
       }

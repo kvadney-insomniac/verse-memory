@@ -108,6 +108,14 @@ export const appConfig = {
    * per-deploy fact: a build with no Worker behind it should leave it empty
    * rather than point at a route that will 404 on every verse. */
   transcribeUrl: "",
+  /* Where the app's own voice is synthesized (worker/transcribe.js, the
+   * /api/speak route). Same shape and same reasoning as transcribeUrl above: a
+   * per-deploy fact, empty when there is no Worker behind it, and empty is not
+   * a broken app but the one it was before, reading with whatever voice the
+   * browser has. Speak mode and Run mode both prefer this and both fall back
+   * per line, so a member on a bad connection loses the good voice for a
+   * sentence rather than for the drive. */
+  speakUrl: "",
   ...appOverrides,
 };
 

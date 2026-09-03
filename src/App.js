@@ -90,7 +90,7 @@ import {
 } from "./speak.js";
 import { createEarcons } from "./earcon.js";
 import { MAX_RECORD_MS, createTranscriber, recordingSupported } from "./transcriber.js";
-import { speakPool } from "./viewmodel/speak.js";
+import { effectiveSource, speakPool } from "./viewmodel/speak.js";
 import { runView } from "./views/run.js";
 import { authGateView } from "./views/auth-gate.js";
 import { profileFormView } from "./views/profile-form.js";
@@ -444,7 +444,9 @@ export class App extends React.Component {
        * optional: a hands-free sitting that cannot speak has nothing to offer. */
       speak: {
         ...this.state.speak,
-        supported: (voiceSupported() || (!!appConfig.transcribeUrl && recordingSupported())) && speechSupported(),
+        supported:
+          (voiceSupported() || (!!appConfig.transcribeUrl && recordingSupported())) &&
+          speechSupported(appConfig.speakUrl),
       },
       scrambleLevel: storage.loadScrambleLevel(defaultDiff, SCRAMBLE_LEVELS.length),
       examSetup: normalizeSetup(storage.loadExamSetup()),
@@ -858,13 +860,16 @@ export class App extends React.Component {
   startSpeak() {
     const d = this.state.speak;
     if (!d.supported || d.running) return;
-    const queue = speakPool(d.source, this.state.passages, this.state.progress, this.state.profile, Date.now()).map(
+    // The same source the screen is showing, never the raw stored one: see
+    // effectiveSource in viewmodel/speak.js.
+    const source = effectiveSource(d.source, this.state.passages, this.state.progress);
+    const queue = speakPool(source, this.state.passages, this.state.progress, this.state.profile, Date.now()).map(
       (p) => p.id,
     );
     if (!queue.length) return;
     // One speaker for the whole session, the Start press is the user gesture
     // the browser's audio policy wants, and everything after it is hands-free.
-    this.speakVoice = createSpeaker();
+    this.speakVoice = createSpeaker({ endpoint: appConfig.speakUrl });
     // Built on the same press, for the same reason: an AudioContext made
     // outside a gesture starts silent.
     this.speakEarcons = createEarcons();
@@ -1566,6 +1571,7 @@ export class App extends React.Component {
       }
       this.setRun({ saying: script[si].text });
       speak(script[si].text, {
+        endpoint: appConfig.speakUrl,
         /* Ducked when the voice really starts, not when it is asked to: a
          * browser that takes a moment to find its voice would otherwise play a
          * quiet beat under nothing at all. */
@@ -1598,7 +1604,7 @@ export class App extends React.Component {
   testRunSound() {
     if (!this.runBeat) this.runBeat = createBeat();
     if (this.runBeat) this.runBeat.testTone();
-    speak(copy.run.testSpoken, {});
+    speak(copy.run.testSpoken, { endpoint: appConfig.speakUrl });
     this.watchRunAudio();
   }
 

@@ -76,12 +76,24 @@ export function cleanDisplayName(name) {
     .trim();
 }
 
-/* A profile is complete once name, ministry group, gender, and class are all
- * set. The gate (App.js) uses this to decide whether to prompt the member before
- * showing the app. Name is normally pre-filled from the Google account, but is
- * required here so a member whose account has no display name still gives one. */
+/* A profile is complete once name and ministry group are set. The gate (App.js)
+ * uses this to decide whether to prompt the member before showing the app. Name
+ * is normally pre-filled from the Google account, but is required here so a
+ * member whose account has no display name still gives one.
+ *
+ * Gender and graduating class are deliberately NOT required, and this is the
+ * one thing in here worth arguing about. They are only ever used to slice the
+ * leaderboard, so a member who leaves them blank costs nobody anything:
+ * `standingsBy` already drops a row with no value for the attribute it is
+ * grouping on rather than pooling it into an invented "Unknown" group, so the
+ * board stays correct on its own. Against that, a mandatory field is a wall in
+ * front of the whole app, and these two ask a stranger to declare a gender and
+ * name a graduating class before they may read a verse. Somebody who is not a
+ * student has no answer to the second one at all, and used to have to invent
+ * a year to get in. Optional costs a slice of one screen; mandatory cost us
+ * everyone who was not going to answer. */
 export function isProfileComplete(p) {
-  return !!(p && p.name && p.ministryGroup && p.gender && p.gradClass);
+  return !!(p && p.name && p.ministryGroup);
 }
 
 /* Is there anything here at all? `{}` is what an unsigned device and a document

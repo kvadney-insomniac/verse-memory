@@ -213,14 +213,14 @@ export const copy = {
     submitSetup: "Save and continue",
     submitEdit: "Save changes",
     intro:
-      "Tell us a bit about yourself. Your name, ministry group, gender, and graduating class shape the leaderboard " +
-      "and group stats.",
+      "Tell us a bit about yourself. Your name and group are all that is needed; the last two are optional, and " +
+      "only shape how the leaderboard can be sliced.",
     name: "Name",
     namePlaceholder: "Your full name",
     ministryGroup: "Ministry group",
     ministryPlaceholder: "Start typing to search…",
-    gender: "Gender",
-    gradClass: "Graduating class",
+    gender: "Gender (optional)",
+    gradClass: "Graduating class (optional)",
     gradClassPlaceholder: "e.g. 2016",
     /* Shown on the setup form in place of the review settings, which are not
      * asked for until the member has something to judge them against. */
